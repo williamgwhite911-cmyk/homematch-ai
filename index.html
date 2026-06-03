@@ -243,6 +243,8 @@
     <div class="fgroup">
       <h4>Realtor / brokerage</h4>
       <input type="text" id="fAgent" placeholder="e.g. Kamiesha Anderson or KB&amp;B">
+      <button class="gen-btn" id="agentSearchBtn" style="margin-top:8px;width:100%;justify-content:center">🔎 Find realtor's live listings</button>
+      <small style="color:var(--muted);font-size:11px;display:block;margin-top:6px">Enter the realtor's name + a city &amp; state (agent search is by city). Needs a live RapidAPI key.</small>
     </div>
     <div class="fgroup">
       <h4>Price range</h4>
@@ -1226,6 +1228,42 @@ function liveError(msg,city,st){
     </ul>
     <button class="nav-btn" onclick="state.source='demo';render()">← Back to demo listings</button>`);
 }
+async function fetchAgentListings(){
+  if(!state.live.key){ liveMsg("⚠️ <b>Add your RapidAPI key</b> in ⚙ Settings to search realtors' live listings."); openSettings(); return; }
+  const name=(state.filters.agent||"").trim();
+  const city=(state.filters.loc||"").split(",")[0].trim();
+  const st=state.filters.stateCode||"FL";
+  if(!name){ $("sidebar").classList.add("open"); $("fAgent").focus(); liveMsg("⚠️ Type the <b>realtor's name</b> in the Realtor / brokerage box, plus a <b>city</b> &amp; state, then tap 🔎 again."); return; }
+  if(!city){ $("sidebar").classList.add("open"); $("fLoc").focus(); liveMsg("⚠️ Agent search is <b>by city</b> — enter the city (and state) where this realtor lists, then tap 🔎 again."); return; }
+  const host=state.live.host||"us-real-estate.p.rapidapi.com";
+  const hdr={"x-rapidapi-key":state.live.key,"x-rapidapi-host":host};
+  liveMsg(`<span class="spinner"></span> Finding <b>${escapeHtml(name)}</b> in <b>${escapeHtml(city)}, ${st}</b>…`);
+  try{
+    const r=await fetch(`https://${host}/v5/agents/agent-search?city=${encodeURIComponent(city)}&state_code=${st}&agent_type=sell&sort_by=relevant_agents`,{headers:hdr});
+    if(r.status===429){ liveError("HTTP 429 — rate limit. Wait ~30–60s and try again.",city,st); return; }
+    if(!r.ok){ liveError("Agent search HTTP "+r.status+" — "+(await r.text()).slice(0,140),city,st); return; }
+    const d=await r.json(); const agents=(d.data&&(d.data.agents||d.data.results))||[];
+    if(!agents.length){ liveError("No agents returned for "+city+", "+st+" (the API may be throttled — wait 30–60s and retry).",city,st); return; }
+    const q=name.toLowerCase();
+    const matches=agents.filter(a=>((a.fullname||a.name||"")+" "+((a.broker&&(a.broker.name||a.broker))||"")).toLowerCase().includes(q));
+    if(!matches.length){
+      const names=agents.slice(0,12).map(a=>a.fullname||a.name).filter(Boolean);
+      liveMsg(`No agent matching <b>${escapeHtml(name)}</b> among the top agents in <b>${escapeHtml(city)}, ${st}</b>.<br><br>Agents found here: ${escapeHtml(names.join(", "))}.<br><br><span class="v muted" style="font-size:12px">Agent search is by city — try the exact city where they list.</span>`);
+      return;
+    }
+    const a=matches[0]; const broker=(a.broker&&(a.broker.name||a.broker))||"";
+    liveMsg(`<span class="spinner"></span> Loading listings by <b>${escapeHtml(a.fullname||a.name)}</b>${broker?" · "+escapeHtml(broker):""}…`);
+    await new Promise(r2=>setTimeout(r2,900));
+    const lr=await fetch(`https://${host}/v5/agents/agent-listings?agent_id=${encodeURIComponent(a.id||a.agent_id)}&fullfillment_id=${encodeURIComponent(a.fulfillment_id||a.fullfillment_id)}&page=1`,{headers:hdr});
+    if(!lr.ok){ liveError("Agent listings HTTP "+lr.status,city,st); return; }
+    const ld=await lr.json(); const results=extractResults(ld)||[];
+    if(!results.length){ liveMsg(`<b>${escapeHtml(a.fullname||a.name)}</b>${broker?" ("+escapeHtml(broker)+")":""} has no active listings in this feed right now. Try another realtor or city. <button class="nav-btn" style="margin-top:10px" onclick="state.source='demo';render()">← Back to demo</button>`); return; }
+    LIVE=results.map(r2=>normalizeLive(r2,state.mode)).filter(x=>x.price||x.photos.length);
+    if(state.filters.sort==="relevance") LIVE.sort((x,y)=>(realPhotos(x).length?0:1)-(realPhotos(y).length?0:1));
+    state.source="live"; render();
+    toast(`${LIVE.length} listing${LIVE.length===1?"":"s"} by ${a.fullname||a.name} ⚡`);
+  }catch(e){ liveError("Realtor search error: "+e.message,city,st); }
+}
 async function fetchLive(){
   if(!state.live.key){ liveMsg("⚠️ <b>No RapidAPI key yet.</b> Open <b>⚙ Settings</b>, paste your key under “Live listings”, hit Save, then tap ⚡ again."); openSettings(); return; }
   const f=state.filters;
@@ -1560,6 +1598,7 @@ $("aiSearchBtn").addEventListener("click",runAISearch);
 $("aiQuery").addEventListener("keydown",e=>{ if(e.key==="Enter") runAISearch(); });
 $("filtersToggle").addEventListener("click",()=>$("sidebar").classList.toggle("open"));
 $("viewToggle").addEventListener("click",()=>{ state.layout = state.layout==="map"?"grid":"map"; $("viewToggle").innerHTML = state.layout==="map"?"▤ List":"🗺️ Map"; $("viewToggle").classList.toggle("primary",state.layout==="map"); render(); });
+$("agentSearchBtn").addEventListener("click",fetchAgentListings);
 $("fabSearch").addEventListener("click",()=>{
   showView("browse");
   $("sidebar").classList.remove("open");
