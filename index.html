@@ -1173,7 +1173,7 @@ async function enrichFromDetail(l){
   l._enriched=true; // mark immediately so we don't double-fetch
   try{
     const host=state.live.host||"us-real-estate.p.rapidapi.com";
-    const r=await fetch(`https://${host}/v3/property-detail?property_id=${encodeURIComponent(l.propertyId)}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}});
+    const r=await rapidFetch(`https://${host}/v3/property-detail?property_id=${encodeURIComponent(l.propertyId)}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}});
     if(!r.ok) return;
     const j=await r.json();
     const d=j.data||j; const h=(d&&(d.home||d.property_detail||d.property))||d;
@@ -1228,6 +1228,13 @@ function liveError(msg,city,st){
     </ul>
     <button class="nav-btn" onclick="state.source='demo';render()">← Back to demo listings</button>`);
 }
+// Auto-spacer: guarantees ≥RAPID_GAP ms between RapidAPI calls (prevents the API's burst throttle), no matter how fast the user clicks.
+let _rapidNext=0; const RAPID_GAP=1300;
+async function rapidFetch(url,opts){
+  const now=Date.now(); const start=Math.max(now,_rapidNext); _rapidNext=start+RAPID_GAP;
+  const wait=start-now; if(wait>0) await new Promise(r=>setTimeout(r,wait));
+  return fetch(url,opts);
+}
 async function fetchAgentListings(){
   if(!state.live.key){ liveMsg("⚠️ <b>Add your RapidAPI key</b> in ⚙ Settings to search realtors' live listings."); openSettings(); return; }
   const name=(state.filters.agent||"").trim();
@@ -1239,7 +1246,7 @@ async function fetchAgentListings(){
   const hdr={"x-rapidapi-key":state.live.key,"x-rapidapi-host":host};
   liveMsg(`<span class="spinner"></span> Finding <b>${escapeHtml(name)}</b> in <b>${escapeHtml(city)}, ${st}</b>…`);
   try{
-    const r=await fetch(`https://${host}/v5/agents/agent-search?city=${encodeURIComponent(city)}&state_code=${st}&agent_type=sell&sort_by=relevant_agents`,{headers:hdr});
+    const r=await rapidFetch(`https://${host}/v5/agents/agent-search?city=${encodeURIComponent(city)}&state_code=${st}&agent_type=sell&sort_by=relevant_agents`,{headers:hdr});
     if(r.status===429){ liveError("HTTP 429 — rate limit. Wait ~30–60s and try again.",city,st); return; }
     if(!r.ok){ liveError("Agent search HTTP "+r.status+" — "+(await r.text()).slice(0,140),city,st); return; }
     const d=await r.json(); const agents=(d.data&&(d.data.agents||d.data.results))||[];
@@ -1254,7 +1261,7 @@ async function fetchAgentListings(){
     const a=matches[0]; const broker=(a.broker&&(a.broker.name||a.broker))||"";
     liveMsg(`<span class="spinner"></span> Loading listings by <b>${escapeHtml(a.fullname||a.name)}</b>${broker?" · "+escapeHtml(broker):""}…`);
     await new Promise(r2=>setTimeout(r2,900));
-    const lr=await fetch(`https://${host}/v5/agents/agent-listings?agent_id=${encodeURIComponent(a.id||a.agent_id)}&fullfillment_id=${encodeURIComponent(a.fulfillment_id||a.fullfillment_id)}&page=1`,{headers:hdr});
+    const lr=await rapidFetch(`https://${host}/v5/agents/agent-listings?agent_id=${encodeURIComponent(a.id||a.agent_id)}&fullfillment_id=${encodeURIComponent(a.fulfillment_id||a.fullfillment_id)}&page=1`,{headers:hdr});
     if(!lr.ok){ liveError("Agent listings HTTP "+lr.status,city,st); return; }
     const ld=await lr.json(); const results=extractResults(ld)||[];
     if(!results.length){ liveMsg(`<b>${escapeHtml(a.fullname||a.name)}</b>${broker?" ("+escapeHtml(broker)+")":""} has no active listings in this feed right now. Try another realtor or city. <button class="nav-btn" style="margin-top:10px" onclick="state.source='demo';render()">← Back to demo</button>`); return; }
@@ -1286,7 +1293,7 @@ async function fetchLive(){
       for(let attempt=0; attempt<3; attempt++){
         if(attempt){ liveMsg(`<span class="spinner"></span> The API was busy — retrying in a moment… (${attempt}/2)`); await new Promise(r=>setTimeout(r,2500*attempt)); }
         let res;
-        try{ res=await fetch(`https://${host}${path}?${qs}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}}); }
+        try{ res=await rapidFetch(`https://${host}${path}?${qs}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}}); }
         catch(netErr){ lastErr="Network/CORS error: "+netErr.message+"\n(host: "+host+")"; continue outer; }
         if(res.status===429){ lastErr="HTTP 429 — RapidAPI rate limit hit. The free plan allows only a few requests at a time; wait ~1 minute and search again."; break outer; }
         if(res.status===404||res.status===403){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,150); continue outer; }
