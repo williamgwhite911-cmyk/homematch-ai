@@ -799,30 +799,62 @@ function normalizeLive(r,mode){
     desc:(r.description&&r.description.text)||`${mapType(d.type||r.prop_type)} in ${a.city||"the area"}.`,
   };
 }
+function escapeHtml(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function liveMsg(html){ $("emptyState").style.display="none"; $("grid").innerHTML=`<div style="grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-size:14px;line-height:1.6">${html}</div>`; }
+function extractResults(data){
+  if(!data) return null;
+  const d=data.data||data;
+  if(d.home_search&&Array.isArray(d.home_search.results)) return d.home_search.results;
+  if(Array.isArray(d.results)) return d.results;
+  if(Array.isArray(d.properties)) return d.properties;
+  if(Array.isArray(d.listings)) return d.listings;
+  if(Array.isArray(d)) return d;
+  return null;
+}
+function liveError(msg,city,st){
+  liveMsg(`<b>⚡ Live search didn't load.</b>
+    <div style="margin:12px 0;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:12px;color:var(--warn);white-space:pre-wrap">${escapeHtml(msg)}</div>
+    <b>What this usually means:</b>
+    <ul style="margin:8px 0;padding-left:20px;color:var(--muted)">
+      <li><b>HTTP 401 / 403</b> — key not saved, or you haven't <b>Subscribed</b> to the API on rapidapi.com (free plan counts). Re-check ⚙ Settings.</li>
+      <li><b>HTTP 429</b> — you hit the plan's request limit. Wait a bit or upgrade the RapidAPI plan.</li>
+      <li><b>HTTP 404</b> — endpoint path mismatch. Copy this whole message to your developer to fix.</li>
+      <li><b>0 listings / unexpected shape</b> — the API returns a different format. Copy this message to map it.</li>
+    </ul>
+    <button class="nav-btn" onclick="state.source='demo';render()">← Back to demo listings</button>`);
+}
 async function fetchLive(){
-  if(!state.live.key){ toast("Add your RapidAPI key in ⚙ first"); openSettings(); return; }
+  if(!state.live.key){ liveMsg("⚠️ <b>No RapidAPI key yet.</b> Open <b>⚙ Settings</b>, paste your key under “Live listings”, hit Save, then tap ⚡ again."); openSettings(); return; }
   const f=state.filters;
   const city=(f.loc||"").split(",")[0].trim();
   const stateCode=f.stateCode||"FL";
-  if(!city){ toast('Type a city in the Area filter (e.g. "Key West")'); $("sidebar").classList.add("open"); $("fLoc").focus(); return; }
+  if(!city){ $("sidebar").classList.add("open"); $("fLoc").focus(); liveMsg('⚠️ <b>Type a city</b> in the <b>Area</b> box (left filters), e.g. <b>Miami</b>, pick a <b>State</b>, then tap ⚡ Live listings again.'); return; }
   const host=state.live.host||"us-real-estate.p.rapidapi.com";
-  const path=state.mode==="rent"?"/for-rent":"/v2/for-sale";
   const qs=new URLSearchParams({ city, state_code:stateCode, limit:"42", offset:"0", sort:sortParam(f.sort) });
   if(f.min) qs.set("price_min",f.min); if(f.max) qs.set("price_max",f.max);
   if(f.beds) qs.set("beds_min",f.beds); if(f.baths) qs.set("baths_min",f.baths);
   if(f.sqftMin) qs.set("sqft_min",f.sqftMin); if(f.sqftMax) qs.set("sqft_max",f.sqftMax);
   if(f.types.length){ const tm={House:"single_family",Condo:"condos",Townhome:"townhomes",Apartment:"multi_family"}; const pt=f.types.map(t=>tm[t]).filter(Boolean).join(","); if(pt) qs.set("property_type",pt); }
+  const paths = state.mode==="rent" ? ["/v2/for-rent","/for-rent","/v3/for-rent"] : ["/v2/for-sale","/for-sale","/v3/for-sale"];
   const btn=$("liveBtn"); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Searching…';
+  liveMsg(`<span class="spinner"></span> Searching live listings in <b>${escapeHtml(city)}, ${stateCode}</b>…`);
+  let lastErr="No endpoint responded.";
   try{
-    const res=await fetch(`https://${host}${path}?${qs.toString()}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}});
-    if(!res.ok) throw new Error("HTTP "+res.status+" — "+(await res.text()).slice(0,160));
-    const data=await res.json();
-    const results=(data.data&&((data.data.home_search&&data.data.home_search.results)||data.data.results||data.data.properties))||data.results||data.properties||[];
-    if(!Array.isArray(results)) throw new Error("Unexpected response shape — see console");
-    LIVE=results.map(r=>normalizeLive(r,state.mode)).filter(x=>x.price||x.photos.length);
-    state.source="live"; render();
-    toast(LIVE.length?`Loaded ${LIVE.length} live listings ⚡`:"No live results — try another city or widen filters");
-  }catch(e){ console.error("Live fetch error:",e); toast("Live fetch failed: "+e.message); }
+    for(const path of paths){
+      let res;
+      try{ res=await fetch(`https://${host}${path}?${qs}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}}); }
+      catch(netErr){ lastErr="Network/CORS error: "+netErr.message+"\n(host: "+host+")"; continue; }
+      if(res.status===404){ lastErr="HTTP 404 — tried "+path+" on "+host; continue; }
+      if(!res.ok){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,220); break; }
+      let data; try{ data=await res.json(); }catch(_){ lastErr="Response wasn't JSON ("+path+")."; break; }
+      const results=extractResults(data);
+      if(!Array.isArray(results)){ lastErr="Connected ("+path+") but couldn't find listings array.\nTop-level keys: "+Object.keys(data||{}).join(", ")+(data&&data.data?"\ndata.* keys: "+Object.keys(data.data).join(", "):""); break; }
+      LIVE=results.map(r=>normalizeLive(r,state.mode)).filter(x=>x.price||x.photos.length);
+      if(LIVE.length){ state.source="live"; render(); toast(`Loaded ${LIVE.length} live listings ⚡`); btn.disabled=false; btn.innerHTML="⚡ Live listings"; return; }
+      lastErr="Connected ("+path+") but got 0 usable listings for "+city+", "+stateCode+".\nTry another city, switch Rent/Buy, or widen filters.";
+    }
+    liveError(lastErr,city,stateCode);
+  }catch(e){ liveError(e.message,city,stateCode); }
   btn.disabled=false; btn.innerHTML="⚡ Live listings";
 }
 
