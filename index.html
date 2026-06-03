@@ -281,8 +281,8 @@
     <div class="fgroup">
       <h4>Square feet</h4>
       <div class="frow">
-        <input type="number" id="fSqftMin" placeholder="Min">
-        <input type="number" id="fSqftMax" placeholder="Max">
+        <input type="text" inputmode="numeric" id="fSqftMin" placeholder="Min">
+        <input type="text" inputmode="numeric" id="fSqftMax" placeholder="Max">
       </div>
     </div>
     <div class="fgroup">
@@ -414,6 +414,8 @@ const AMEN = [
   { key:"gym", label:"Gym", icon:"🏋️" },
   { key:"seaView", label:"Sea view", icon:"🌊" },
   { key:"golfView", label:"Golf course view", icon:"⛳" },
+  { key:"communityPool", label:"Community pool", icon:"🏊‍♂️" },
+  { key:"communityGym", label:"Community gym", icon:"🏋️‍♀️" },
   { key:"petsDogs", label:"Dogs OK", icon:"🐕" },
   { key:"petsCats", label:"Cats OK", icon:"🐈" },
 ];
@@ -464,6 +466,8 @@ LISTINGS.forEach(l=>{
   if(l.amen.petsDogs===undefined) l.amen.petsDogs=(l.id%2===0);
   if(l.amen.petsCats===undefined) l.amen.petsCats=(l.id%3!==0);
   if(l.garageSpaces===undefined) l.garageSpaces = l.amen.garage ? ((l.id%3)+1) : 0;
+  if(l.amen.communityPool===undefined) l.amen.communityPool = l.gated || l.amen.clubhouse || (l.id%2===0);
+  if(l.amen.communityGym===undefined) l.amen.communityGym = l.amen.clubhouse || (l.amen.gym && l.gated);
 });
 
 /* ============================ State ============================ */
@@ -485,6 +489,7 @@ let LIVE = [];
 /* ============================ Helpers ============================ */
 const $ = (id)=>document.getElementById(id);
 const money = (n)=>"$"+Number(n).toLocaleString("en-US");
+const hm = (mins)=>{ mins=Math.round(mins); if(mins<60) return mins+" min"; const h=Math.floor(mins/60), m=mins%60; return h+" hr"+(m?" "+m+" min":""); };
 const gradFor = (id)=>GRADIENTS[id%GRADIENTS.length];
 const aiReady = ()=>!!state.ai.key;
 // Only render photos that are real URLs from a listings provider — never stock/placeholder images.
@@ -754,7 +759,7 @@ async function loadNearby(l){
     });
     const center=await centerP;
     if(currentListing!==l) return;
-    const centerRow = center&&center.mi!=null ? `<div class="intel-row"><span>🏙️ City center</span><span class="v">${center.mi.toFixed(1)} mi${center.min!=null?" · "+center.min+" min":""}</span></div>` : "";
+    const centerRow = center&&center.mi!=null ? `<div class="intel-row"><span>🏙️ City center</span><span class="v">${center.mi.toFixed(1)} mi${center.min!=null?" · "+hm(center.min):""}</span></div>` : "";
     const rows=cats.map(c=>{
       const n=nearest[c.k];
       const cuisine=(c.k==="restaurant"&&n&&n.cuisine)?` <span class="v muted" style="font-weight:400">(${n.cuisine.replace(/_/g," ").replace(/;/g,", ")})</span>`:"";
@@ -764,7 +769,7 @@ async function loadNearby(l){
   }catch(e){
     const center=await centerP.catch(()=>null);
     if(currentListing!==l) return;
-    box.innerHTML=(center&&center.mi!=null?`<div class="intel-row"><span>🏙️ City center</span><span class="v">${center.mi.toFixed(1)} mi${center.min!=null?" · "+center.min+" min":""}</span></div>`:"")+`<div class="intel-row"><span class="v muted">Couldn't reach the places service. Try again shortly.</span></div>`;
+    box.innerHTML=(center&&center.mi!=null?`<div class="intel-row"><span>🏙️ City center</span><span class="v">${center.mi.toFixed(1)} mi${center.min!=null?" · "+hm(center.min):""}</span></div>`:"")+`<div class="intel-row"><span class="v muted">Couldn't reach the places service. Try again shortly.</span></div>`;
   }
 }
 
@@ -846,7 +851,7 @@ async function loadLandmarks(l){
       if(currentListing!==l) return;
       const row=box.querySelector(`[data-li="${i}"] .v`); if(!row) continue;
       if(data.routes&&data.routes[0]){ const mins=Math.round(data.routes[0].duration/60), mi=(data.routes[0].distance/1609).toFixed(0);
-        row.classList.remove("muted"); row.innerHTML=`${mins} min · ${mi} mi`; }
+        row.classList.remove("muted"); row.innerHTML=`${hm(mins)} · ${mi} mi`; }
       else row.innerHTML='<span class="muted">—</span>';
     }catch(e){ const row=box.querySelector(`[data-li="${i}"] .v`); if(row) row.innerHTML='<span class="muted">—</span>'; }
   }
@@ -900,7 +905,7 @@ async function loadCommute(l){
       if(currentListing!==l) return;
       const row=box.querySelector(`[data-pid="${p.id}"] .v`); if(!row) continue;
       if(data.routes&&data.routes[0]){ const mins=Math.round(data.routes[0].duration/60), mi=(data.routes[0].distance/1609).toFixed(1);
-        row.classList.remove("muted"); row.innerHTML=`${mins} min · ${mi} mi`; }
+        row.classList.remove("muted"); row.innerHTML=`${hm(mins)} · ${mi} mi`; }
       else row.innerHTML='<span class="muted">no route</span>';
     }catch(e){ const row=box.querySelector(`[data-pid="${p.id}"] .v`); if(row) row.innerHTML='<span class="muted">—</span>'; }
   }
@@ -965,7 +970,7 @@ function applyParsed(p){
   render();
 }
 async function aiParseQuery(q){
-  const sys=`Convert a natural-language real-estate search into JSON. Output ONLY a JSON object: mode("rent"|"buy"|null), types(array of any of "House","Condo","Townhome","Apartment"), gated(bool), beds(number|null), baths(number|null), max(number|null, max price), loc(string|null), amen(array of any of: garage, coveredParking, pool, clubhouse, gym, seaView, golfView, petsDogs, petsCats). Use [] / null / false when unknown. No prose.`;
+  const sys=`Convert a natural-language real-estate search into JSON. Output ONLY a JSON object: mode("rent"|"buy"|null), types(array of any of "House","Condo","Townhome","Apartment"), gated(bool), beds(number|null), baths(number|null), max(number|null, max price), loc(string|null), amen(array of any of: garage, coveredParking, pool, clubhouse, gym, communityPool, communityGym, seaView, golfView, petsDogs, petsCats). Use [] / null / false when unknown. No prose.`;
   const txt=await callAI(sys,q); const m=txt.match(/\{[\s\S]*\}/); return JSON.parse(m?m[0]:txt);
 }
 function offlineParseQuery(q){
@@ -978,7 +983,7 @@ function offlineParseQuery(q){
   const bath=s.match(/(\d+)\s*(?:\+)?\s*(?:bath|ba|bathroom)/); if(bath) p.baths=Number(bath[1]);
   let pr=s.match(/(?:under|below|less than|max|up to)\s*\$?\s*([\d,]+)\s*(k|m)?/)||s.match(/\$\s*([\d,]+)\s*(k|m)?/);
   if(pr){ let n=Number(pr[1].replace(/,/g,"")); if(pr[2]==="k")n*=1e3; if(pr[2]==="m")n*=1e6; p.max=n; }
-  const fm={pool:"pool",garage:"garage","covered parking":"coveredParking",parking:"coveredParking",clubhouse:"clubhouse",gym:"gym","fitness":"gym","sea view":"seaView",ocean:"seaView",waterfront:"seaView",water:"seaView","golf":"golfView",dog:"petsDogs",cat:"petsCats","pet":"petsDogs","pet-friendly":"petsDogs"};
+  const fm={"community pool":"communityPool","community gym":"communityGym",pool:"pool",garage:"garage","covered parking":"coveredParking",parking:"coveredParking",clubhouse:"clubhouse",gym:"gym","fitness":"gym","sea view":"seaView",ocean:"seaView",waterfront:"seaView",water:"seaView","golf":"golfView",dog:"petsDogs",cat:"petsCats","pet":"petsDogs","pet-friendly":"petsDogs"};
   for(const k in fm){ if(s.includes(k)&&!p.amen.includes(fm[k])) p.amen.push(fm[k]); }
   for(const c of ["key west","key largo","marathon","islamorada","miami","fort lauderdale","brickell"]) if(s.includes(c)){ p.loc=c; break; }
   if(/low crime|safe|safest/.test(s)){ state.filters.sort="safety"; $("fSort").value="safety"; }
@@ -1287,7 +1292,7 @@ function syncFilterUI(){
   $("fLoc").value=f.loc; $("fState").value=f.stateCode;
   $("fMin").value=f.min?"$"+Number(f.min).toLocaleString("en-US"):"";
   $("fMax").value=f.max?"$"+Number(f.max).toLocaleString("en-US"):"";
-  $("fSqftMin").value=f.sqftMin; $("fSqftMax").value=f.sqftMax; $("fGated").checked=f.gated;
+  $("fSqftMin").value=f.sqftMin?Number(f.sqftMin).toLocaleString("en-US"):""; $("fSqftMax").value=f.sqftMax?Number(f.sqftMax).toLocaleString("en-US"):""; $("fGated").checked=f.gated;
   $("typeChecks").querySelectorAll("input").forEach(c=>c.checked=f.types.includes(c.value));
   $("fAgent").value=f.agent||"";
   $("bedSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.v===f.beds));
@@ -1298,7 +1303,7 @@ function syncFilterUI(){
 function readFilterUI(){
   const f=state.filters;
   f.loc=$("fLoc").value.trim(); f.stateCode=$("fState").value; f.agent=$("fAgent").value.trim(); f.min=$("fMin").value.replace(/[^\d]/g,""); f.max=$("fMax").value.replace(/[^\d]/g,"");
-  f.sqftMin=$("fSqftMin").value; f.sqftMax=$("fSqftMax").value; f.gated=$("fGated").checked;
+  f.sqftMin=$("fSqftMin").value.replace(/[^\d]/g,""); f.sqftMax=$("fSqftMax").value.replace(/[^\d]/g,""); f.gated=$("fGated").checked;
   f.types=[...$("typeChecks").querySelectorAll("input:checked")].map(c=>c.value);
   f.amen=AMEN.filter(a=>$("amen_"+a.key)?.checked).map(a=>a.key);
   state.showFavsOnly=false; render();
@@ -1323,9 +1328,9 @@ $("filtersToggle").addEventListener("click",()=>$("sidebar").classList.toggle("o
 $("liveBtn").addEventListener("click",fetchLive);
 
 function wireFilters(){
-  ["fLoc","fSqftMin","fSqftMax","fAgent"].forEach(id=>$(id).addEventListener("input",readFilterUI));
+  ["fLoc","fAgent"].forEach(id=>$(id).addEventListener("input",readFilterUI));
+  ["fMin","fMax","fSqftMin","fSqftMax"].forEach(id=>$(id).addEventListener("input",e=>{ const el=e.target,d=el.value.replace(/[^\d]/g,""),pfx=(id==="fMin"||id==="fMax")?"$":""; el.value=d?pfx+Number(d).toLocaleString("en-US"):""; readFilterUI(); }));
   $("garageSeg").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ state.filters.garage=b.dataset.v; syncFilterUI(); render(); }));
-  ["fMin","fMax"].forEach(id=>$(id).addEventListener("input",e=>{ const el=e.target,d=el.value.replace(/[^\d]/g,""); el.value=d?"$"+Number(d).toLocaleString("en-US"):""; readFilterUI(); }));
   $("fState").addEventListener("change",readFilterUI);
   $("fGated").addEventListener("change",readFilterUI);
   $("typeChecks").querySelectorAll("input").forEach(c=>c.addEventListener("change",readFilterUI));
