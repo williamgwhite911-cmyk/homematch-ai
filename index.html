@@ -220,13 +220,13 @@
   <!-- Sidebar filters -->
   <aside class="sidebar" id="sidebar">
     <div class="fgroup">
-      <h4>Area</h4>
-      <input type="text" id="fLoc" placeholder="City (e.g. Key West)">
+      <h4>City / address / subdivision</h4>
+      <input type="text" id="fLoc" placeholder="City, street, or subdivision">
       <select id="fState" style="margin-top:8px"></select>
     </div>
     <div class="fgroup">
-      <h4>Search by agent</h4>
-      <input type="text" id="fAgent" placeholder="Agent name">
+      <h4>Realtor / brokerage</h4>
+      <input type="text" id="fAgent" placeholder="e.g. Kamiesha Anderson or KB&amp;B">
     </div>
     <div class="fgroup">
       <h4>Price range</h4>
@@ -409,9 +409,13 @@ const AMEN = [
   { key:"petsCats", label:"Cats OK", icon:"🐈" },
 ];
 const AGENTS=[
-  {name:"Maria Gonzalez",phone:"(305) 555-0142"},{name:"James Carter",phone:"(305) 555-0188"},
-  {name:"Aisha Patel",phone:"(786) 555-0117"},{name:"Robert Nguyen",phone:"(954) 555-0163"},
-  {name:"Sofia Rossi",phone:"(305) 555-0199"},{name:"David Brooks",phone:"(786) 555-0124"},
+  {name:"Kamiesha Anderson",brokerage:"KB&B Realty",phone:"(305) 555-0110"},
+  {name:"Maria Gonzalez",brokerage:"Coastal Keys Realty",phone:"(305) 555-0142"},
+  {name:"James Carter",brokerage:"Blue Water Properties",phone:"(305) 555-0188"},
+  {name:"Aisha Patel",brokerage:"Sunshine State Homes",phone:"(786) 555-0117"},
+  {name:"Robert Nguyen",brokerage:"Atlantic Realty Group",phone:"(954) 555-0163"},
+  {name:"Sofia Rossi",brokerage:"Island Life Realty",phone:"(305) 555-0199"},
+  {name:"David Brooks",brokerage:"Keys Premier Realty",phone:"(786) 555-0124"},
 ];
 // Popular South-Florida destinations — drive time/distance shown on each listing.
 const PRESET_DESTS=[
@@ -446,7 +450,8 @@ let LISTINGS = [
 let nextId = 13;
 // Enrich demo listings with agent + pet info without editing each object.
 LISTINGS.forEach(l=>{
-  const a=AGENTS[l.id%AGENTS.length]; l.agent=l.agent||a.name; l.phone=l.phone||a.phone;
+  const a=(l.id%4===0)?AGENTS[0]:AGENTS[l.id%AGENTS.length]; // a few go to Kamiesha/KB&B for demo
+  l.agent=l.agent||a.name; l.phone=l.phone||a.phone; l.brokerage=l.brokerage||a.brokerage;
   if(l.amen.petsDogs===undefined) l.amen.petsDogs=(l.id%2===0);
   if(l.amen.petsCats===undefined) l.amen.petsCats=(l.id%3!==0);
   if(l.garageSpaces===undefined) l.garageSpaces = l.amen.garage ? ((l.id%3)+1) : 0;
@@ -495,7 +500,7 @@ function applyFilters(){
   if (f.beds) rows = rows.filter(l=>l.beds>=Number(f.beds));
   if (f.baths) rows = rows.filter(l=>l.baths>=Number(f.baths));
   if (f.garage) rows = rows.filter(l=>(l.garageSpaces||0)>=Number(f.garage));
-  if (f.agent) { const q=f.agent.toLowerCase(); rows = rows.filter(l=>(l.agent||"").toLowerCase().includes(q)); }
+  if (f.agent) { const q=f.agent.toLowerCase(); rows = rows.filter(l=>((l.agent||"")+" "+(l.brokerage||"")).toLowerCase().includes(q)); }
   if (f.sqftMin) rows = rows.filter(l=>l.sqft>=Number(f.sqftMin));
   if (f.sqftMax) rows = rows.filter(l=>l.sqft<=Number(f.sqftMax));
   if (f.amen.length) rows = rows.filter(l=>f.amen.every(k=>l.amen[k]));
@@ -508,7 +513,11 @@ function applyFilters(){
 function render(){
   const live = state.source==="live";
   let rows = live ? LIVE : applyFilters();
-  if (live && state.filters.agent){ const q=state.filters.agent.toLowerCase(); rows = rows.filter(l=>(l.agent||"").toLowerCase().includes(q)); }
+  if (live){
+    const f=state.filters;
+    if (f.agent){ const q=f.agent.toLowerCase(); rows = rows.filter(l=>((l.agent||"")+" "+(l.brokerage||"")).toLowerCase().includes(q)); }
+    if (f.loc){ const q=f.loc.toLowerCase(); rows = rows.filter(l=>((l.addr||"")+" "+(l.neighborhood||"")+" "+(l.city||"")).toLowerCase().includes(q)); }
+  }
   const grid=$("grid");
   grid.innerHTML="";
   const banner=document.querySelector(".demo-banner"); if(banner) banner.style.display = live?"none":"block";
@@ -579,7 +588,7 @@ function openDetail(l){
     ${l.agent?`<div class="section" style="border-top:none;padding-top:14px;margin-top:14px">
       <div class="intel-card" style="display:flex;align-items:center;gap:14px">
         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:grid;place-items:center;font-weight:800;color:#06223f">${l.agent.split(" ").map(w=>w[0]).join("").slice(0,2)}</div>
-        <div><div style="font-size:12px;color:var(--muted)">Listing agent</div><div class="agent-name" data-agent="${(l.agent||'').replace(/"/g,'&quot;')}" style="font-weight:700;color:var(--accent);cursor:pointer">${l.agent} › <span style="font-size:11px;color:var(--muted);font-weight:400">see all listings</span></div></div>
+        <div><div style="font-size:12px;color:var(--muted)">Listing agent</div><div class="agent-name" data-agent="${(l.agent||'').replace(/"/g,'&quot;')}" style="font-weight:700;color:var(--accent);cursor:pointer">${l.agent} › <span style="font-size:11px;color:var(--muted);font-weight:400">see all listings</span></div>${l.brokerage?`<div style="font-size:12px;color:var(--muted)">${l.brokerage}</div>`:""}</div>
         ${l.phone?`<a href="tel:${l.phone.replace(/[^\\d+]/g,"")}" style="margin-left:auto;background:var(--accent-2);color:#053826;text-decoration:none;font-weight:700;padding:9px 14px;border-radius:9px">📞 ${l.phone}</a>`:""}
       </div></div>`:""}
 
@@ -599,7 +608,7 @@ function openDetail(l){
           <div id="landmarks"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Calculating…</span></div></div>
         </div>
         <div class="intel-card" style="grid-column:1/-1">
-          <h5>Commute from your places</h5>
+          <h5>Drive time from this property to your locations</h5>
           <div id="commute"></div>
         </div>
       </div>
@@ -738,17 +747,43 @@ function filterByAgent(name){
 }
 
 /* ============================ Commute (OSRM) ============================ */
+function commuteAddForm(){
+  return `<div class="advisor-chat" style="margin-top:10px">
+    <input id="commuteAddr" placeholder="Add a location — address, city, work, school…">
+    <button id="commuteAddBtn">Add</button></div>`;
+}
+function wireCommuteAdd(l){
+  $("commuteAddBtn")?.addEventListener("click",()=>addCommutePlace(l));
+  $("commuteAddr")?.addEventListener("keydown",e=>{ if(e.key==="Enter") addCommutePlace(l); });
+}
+async function addCommutePlace(l){
+  const inp=$("commuteAddr"); if(!inp) return;
+  const addr=inp.value.trim(); if(!addr){ inp.focus(); return; }
+  const btn=$("commuteAddBtn"); btn.disabled=true; btn.innerHTML='<span class="spinner"></span>';
+  try{
+    const g=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`,{headers:{Accept:"application/json"}}).then(r=>r.json());
+    if(!g.length) throw new Error("not found");
+    const name=addr.length>24?addr.slice(0,24)+"…":addr;
+    state.places.push({id:Date.now(),name,label:g[0].display_name.split(",").slice(0,2).join(","),lat:Number(g[0].lat),lng:Number(g[0].lon)});
+    savePlaces(); renderPlaces();
+    loadCommute(l);
+  }catch(e){ toast("Couldn't find that address — try adding city/state"); if($("commuteAddBtn")){ $("commuteAddBtn").disabled=false; $("commuteAddBtn").innerHTML="Add"; } }
+}
 async function loadCommute(l){
   const box=$("commute"); if(!box) return;
-  if(!state.places.length){ box.innerHTML=`<div class="commute-empty">No saved places yet. <a id="addPlaceLink">Add a place</a> (work, school, gym) to see drive times.</div>`;
-    $("addPlaceLink")?.addEventListener("click",openPlaces); return; }
-  box.innerHTML=state.places.map(p=>`<div class="intel-row" data-pid="${p.id}"><span>📍 ${p.name}</span><span class="v muted"><span class="spinner"></span></span></div>`).join("");
+  const head=`<div class="intel-row" style="margin-bottom:2px"><span class="v muted" style="font-size:12px">From: ${l.addr||l.city||"this property"}</span></div>`;
+  if(!state.places.length){
+    box.innerHTML=head+`<div class="commute-empty">No locations yet — add your work, school, or any address to see the drive time &amp; distance from this property.</div>`+commuteAddForm();
+    wireCommuteAdd(l); return;
+  }
+  box.innerHTML=head+state.places.map(p=>`<div class="intel-row" data-pid="${p.id}"><span>📍 ${p.name}</span><span class="v muted"><span class="spinner"></span></span></div>`).join("")+commuteAddForm();
+  wireCommuteAdd(l);
   for(const p of state.places){
     try{
       const url=`https://router.project-osrm.org/route/v1/driving/${l.lng},${l.lat};${p.lng},${p.lat}?overview=false`;
       const res=await fetch(url); const data=await res.json();
       if(currentListing!==l) return;
-      const row=box.querySelector(`[data-pid="${p.id}"] .v`);
+      const row=box.querySelector(`[data-pid="${p.id}"] .v`); if(!row) continue;
       if(data.routes&&data.routes[0]){ const mins=Math.round(data.routes[0].duration/60), mi=(data.routes[0].distance/1609).toFixed(1);
         row.classList.remove("muted"); row.innerHTML=`${mins} min · ${mi} mi`; }
       else row.innerHTML='<span class="muted">no route</span>';
@@ -899,7 +934,7 @@ function normalizeLive(r,mode){
     lat:coord.lat!=null?Number(coord.lat):null, lng:coord.lon!=null?Number(coord.lon):null,
     stateAbbr:(a.state_code||a.state||state.filters.stateCode||"").toUpperCase().slice(0,2),
     gated:false, amen:Object.assign(emptyAmen(),{garage:(Number(d.garage)||0)>0}), garageSpaces:Number(d.garage)||0, crime:null, photos,
-    agent:liveAgent(r), phone:livePhone(r),
+    agent:liveAgent(r), phone:livePhone(r), brokerage:liveBrokerage(r),
     desc:(r.description&&r.description.text)||`${mapType(d.type||r.prop_type)} in ${a.city||"the area"}.`,
   };
 }
@@ -911,6 +946,10 @@ function livePhone(r){
   const adv=(r.advertisers&&r.advertisers[0])||{};
   const ph=(adv.phones&&adv.phones[0]&&(adv.phones[0].number||adv.phones[0]))||adv.phone||(r.source&&r.source.agents&&r.source.agents[0]&&r.source.agents[0].phone)||"";
   return typeof ph==="string"?ph:"";
+}
+function liveBrokerage(r){
+  const adv=(r.advertisers&&r.advertisers[0])||{};
+  return (adv.office&&adv.office.name)||(adv.broker&&adv.broker.name)||(r.branding&&r.branding[0]&&r.branding[0].name)||"";
 }
 function escapeHtml(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 function liveMsg(html){ $("emptyState").style.display="none"; $("grid").innerHTML=`<div style="grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-size:14px;line-height:1.6">${html}</div>`; }
