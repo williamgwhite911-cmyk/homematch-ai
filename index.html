@@ -1211,8 +1211,8 @@ async function fetchLive(){
   try{
     outer:
     for(const path of paths){
-      for(let attempt=0; attempt<4; attempt++){
-        if(attempt){ liveMsg(`<span class="spinner"></span> Fetching listings in <b>${escapeHtml(city)}, ${stateCode}</b>… (retry ${attempt})`); await new Promise(r=>setTimeout(r,1500)); }
+      for(let attempt=0; attempt<3; attempt++){
+        if(attempt){ liveMsg(`<span class="spinner"></span> The API was busy — retrying in a moment… (${attempt}/2)`); await new Promise(r=>setTimeout(r,2500*attempt)); }
         let res;
         try{ res=await fetch(`https://${host}${path}?${qs}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}}); }
         catch(netErr){ lastErr="Network/CORS error: "+netErr.message+"\n(host: "+host+")"; continue outer; }
@@ -1230,7 +1230,7 @@ async function fetchLive(){
         // home_search present with total 0 = genuinely empty (filters too tight). home_search null/missing = intermittent blip → retry.
         const total=hs?Number(hs.total||0):0;
         if(hs && total===0){ lastErr="No listings found for "+city+", "+stateCode+". Try another city, switch Rent/Buy, or widen filters."; continue outer; }
-        lastErr="The API returned an empty page (it does this occasionally). Retrying…"; // retry same path via inner loop
+        lastErr="The listings API is temporarily throttling — it returns empty pages when hit too often (even on paid plans). Wait ~30–60 seconds, then tap 🔍 Search again. Tip: search one city at a time to avoid this."; // retry same path via inner loop
       }
     }
     liveError(lastErr,city,stateCode);
