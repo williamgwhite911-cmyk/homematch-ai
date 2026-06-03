@@ -544,6 +544,9 @@ function render(){
     const f=state.filters;
     if (f.agent){ const q=f.agent.toLowerCase(); rows = rows.filter(l=>((l.agent||"")+" "+(l.brokerage||"")).toLowerCase().includes(q)); }
     if (f.loc){ const q=f.loc.toLowerCase(); rows = rows.filter(l=>((l.addr||"")+" "+(l.neighborhood||"")+" "+(l.city||"")).toLowerCase().includes(q)); }
+    if (f.gated) rows = rows.filter(l=>l.gated);
+    if (f.garage) rows = rows.filter(l=>(l.garageSpaces||0)>=Number(f.garage));
+    if (f.amen.length) rows = rows.filter(l=>f.amen.every(k=>l.amen[k]));
   }
   const grid=$("grid");
   grid.innerHTML="";
@@ -1134,7 +1137,7 @@ function normalizeLive(r,mode){
     addr:a.line||a.city||"",
     lat:coord.lat!=null?Number(coord.lat):null, lng:coord.lon!=null?Number(coord.lon):null,
     stateAbbr:(a.state_code||a.state||state.filters.stateCode||"").toUpperCase().slice(0,2),
-    gated:false, amen:Object.assign(emptyAmen(),{garage:(Number(d.garage)||0)>0}), garageSpaces:Number(d.garage)||0, crime:null, photos,
+    ...(()=>{ const am=liveAmenities(r); return {gated:am.gated, amen:am.amen, garageSpaces:am.garageSpaces}; })(), crime:null, photos,
     agent:liveAgent(r), phone:livePhone(r), brokerage:liveBrokerage(r), schools:liveSchools(r), priceHistory:liveHistory(r),
     desc:(r.description&&r.description.text)||`${mapType(d.type||r.prop_type)} in ${a.city||"the area"}.`,
   };
@@ -1198,6 +1201,29 @@ async function enrichFromDetail(l){
       if(currentListing===l) loadSchools(l);
     }
   }catch(e){ /* keep list-level data */ }
+}
+// Map a live listing's tags + description text to our amenity flags (the search feed has no explicit amenity fields).
+function liveAmenities(r){
+  const amen=emptyAmen();
+  const d=r.description||{};
+  const tags=(Array.isArray(r.tags)?r.tags:[]).map(t=>String(t).toLowerCase());
+  const desc=((d.text)||"").toLowerCase();
+  const has=(...keys)=>keys.some(k=>tags.some(t=>t.includes(k))||desc.includes(k.replace(/_/g," ")));
+  amen.communityPool=has("community_pool","community_swimming_pool","community pool");
+  amen.pool=has("private_pool","swimming_pool")||(has("pool")&&!amen.communityPool);
+  amen.communityGym=has("community_gym","community fitness");
+  amen.gym=has("fitness_center","fitness center","gym")&&!amen.communityGym;
+  amen.clubhouse=has("clubhouse","club house");
+  amen.coveredParking=has("carport","covered_parking","covered parking");
+  amen.seaView=has("waterfront","ocean_view","ocean view","water_view","water view","bay_view","intracoastal","beachfront");
+  amen.golfView=has("golf_course","golf course");
+  const pets=has("pets_allowed","pet_friendly","pets allowed","pet friendly");
+  amen.petsDogs=pets||has("dogs");
+  amen.petsCats=pets||has("cats");
+  let gs=Number(d.garage)||0;
+  if(!gs){ const m=tags.find(t=>/garage[_-]?(\d)/.test(t)); if(m) gs=Number(m.match(/garage[_-]?(\d)/)[1]); else if(has("garage")) gs=1; }
+  amen.garage=gs>0||has("garage");
+  return { amen, garageSpaces:gs, gated:has("gated_community","gated community","gated") };
 }
 function liveSchools(r){
   const raw=r.nearbySchools||r.schools||(r.location&&r.location.schools)||(r.schools&&r.schools.schools);
