@@ -155,6 +155,15 @@
   .advisor-chat input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 11px; border-radius: 9px; }
   .advisor-chat button { background: var(--accent); color: #06223f; border: none; padding: 0 18px; border-radius: 9px; font-weight: 700; }
 
+  /* Mortgage */
+  .mortgage-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .mortgage-grid label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; }
+  .mortgage-grid input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 9px 10px; border-radius: 8px; font-size: 14px; }
+  .mortgage-grid input:focus { outline: none; border-color: var(--accent); }
+  .mort-total { background: linear-gradient(135deg, rgba(79,156,249,.15), rgba(52,211,153,.1)); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; margin-bottom: 10px; }
+  .mort-total b { font-size: 26px; }
+  @media (max-width: 600px){ .mortgage-grid { grid-template-columns: 1fr 1fr; } }
+
   /* Forms / settings */
   .form-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 760px; margin: 0 auto; }
   .form-card h2 { margin: 0 0 6px; }
@@ -592,6 +601,15 @@ function openDetail(l){
         ${l.phone?`<a href="tel:${l.phone.replace(/[^\\d+]/g,"")}" style="margin-left:auto;background:var(--accent-2);color:#053826;text-decoration:none;font-weight:700;padding:9px 14px;border-radius:9px">📞 ${l.phone}</a>`:""}
       </div></div>`:""}
 
+    ${l.mode==="buy"?`<div class="section"><h3>💰 Mortgage estimate</h3>
+      <div class="mortgage-grid">
+        <label>Down payment %<input id="mDown" type="number" value="20" min="0" max="100"></label>
+        <label>Interest rate %<input id="mRate" type="number" step="0.1" value="6.9" min="0"></label>
+        <label>Term (years)<input id="mTerm" type="number" value="30" min="1"></label>
+      </div>
+      <div id="mortgageOut"></div>
+    </div>`:""}
+
     <div class="section"><h3>📍 Location intelligence</h3>
       <div id="miniMap"></div>
       <div class="intel-grid">
@@ -600,8 +618,16 @@ function openDetail(l){
           <div id="safetyBox"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Loading crime data…</span></div></div>
         </div>
         <div class="intel-card">
+          <h5>FEMA flood zone</h5>
+          <div id="floodBox"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Checking flood map…</span></div></div>
+        </div>
+        <div class="intel-card">
           <h5>What's nearby</h5>
           <div id="nearby"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Finding nearby places…</span></div></div>
+        </div>
+        <div class="intel-card">
+          <h5>Nearby schools</h5>
+          <div id="schoolsBox"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Finding schools…</span></div></div>
         </div>
         <div class="intel-card">
           <h5>Drive time to popular spots</h5>
@@ -628,16 +654,41 @@ function openDetail(l){
   $("detailBody").querySelectorAll(".advisor-actions button").forEach(b=>b.addEventListener("click",()=>advisorAsk(presetQuestion(b.dataset.act))));
   $("advisorSend").addEventListener("click",()=>{ const v=$("advisorInput").value.trim(); if(v){ advisorAsk(v); $("advisorInput").value=""; } });
   $("advisorInput").addEventListener("keydown",e=>{ if(e.key==="Enter") $("advisorSend").click(); });
+  if(l.mode==="buy"){ ["mDown","mRate","mTerm"].forEach(id=>$(id)?.addEventListener("input",refreshMortgage)); refreshMortgage(); }
 
   $("detailOverlay").classList.add("open");
   loadCrime(l);
-  if(l.lat!=null&&l.lng!=null){ setTimeout(()=>initMap(l),60); loadNearby(l); loadLandmarks(l); loadCommute(l); }
+  if(l.lat!=null&&l.lng!=null){ setTimeout(()=>initMap(l),60); loadNearby(l); loadSchools(l); loadLandmarks(l); loadCommute(l); loadFlood(l); }
   else {
     $("miniMap").innerHTML='<div style="padding:20px;color:var(--muted);font-size:13px">No map coordinates for this listing.</div>';
     const nb=$("nearby"); if(nb) nb.innerHTML='<div class="intel-row"><span class="v muted">Location data unavailable</span></div>';
+    const sc=$("schoolsBox"); if(sc) sc.innerHTML='<div class="intel-row"><span class="v muted">Location data unavailable</span></div>';
+    const fb=$("floodBox"); if(fb) fb.innerHTML='<div class="intel-row"><span class="v muted">Location data unavailable</span></div>';
     const lm=$("landmarks"); if(lm) lm.innerHTML='<div class="intel-row"><span class="v muted">Location data unavailable</span></div>';
     const cm=$("commute"); if(cm) cm.innerHTML='<div class="commute-empty">Location data unavailable</div>';
   }
+}
+function refreshMortgage(){
+  const l=currentListing; if(!l||l.mode!=="buy") return;
+  const out=$("mortgageOut"); if(!out) return;
+  const price=Number(l.price)||0;
+  const downPct=Math.min(100,Math.max(0,Number($("mDown").value)||0));
+  const monthlyRate=Math.max(0,Number($("mRate").value)||0)/100/12;
+  const term=Math.max(1,Number($("mTerm").value)||30);
+  const down=price*downPct/100, loan=price-down, n=term*12;
+  const pi = monthlyRate>0 ? loan*monthlyRate/(1-Math.pow(1+monthlyRate,-n)) : loan/n;
+  const tax = price*0.011/12;
+  const highFlood=/^(A|AE|AH|AO|AR|A99|V|VE)/.test(l._floodZone||"");
+  const ins = price*(highFlood?0.012:0.006)/12;
+  const total = pi+tax+ins;
+  const row=(label,val,extra="")=>`<div class="intel-row"><span>${label}${extra}</span><span class="v">${money(Math.round(val))}/mo</span></div>`;
+  out.innerHTML=`
+    <div class="mort-total"><div style="font-size:12px;color:var(--muted)">Estimated monthly payment</div><b>${money(Math.round(total))}</b><span style="color:var(--muted)">/mo</span></div>
+    ${row("Principal &amp; interest",pi)}
+    ${row("Property tax (est. 1.1%/yr)",tax)}
+    ${row("Insurance",ins,highFlood?' <span class="v muted" style="font-weight:400;font-size:11px">(higher — flood zone)</span>':"")}
+    <div class="intel-row" style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"><span class="v muted" style="font-size:12px">Loan ${money(Math.round(loan))} after ${money(Math.round(down))} down · ${term}-yr</span></div>
+    <div class="intel-row"><span class="v muted" style="font-size:11px">Estimate only — taxes/insurance/HOA vary. Not a loan offer.</span></div>`;
 }
 function buildGallery(l){
   const g=$("gallery"), rp=realPhotos(l);
@@ -715,6 +766,70 @@ async function loadNearby(l){
     if(currentListing!==l) return;
     box.innerHTML=(center&&center.mi!=null?`<div class="intel-row"><span>🏙️ City center</span><span class="v">${center.mi.toFixed(1)} mi${center.min!=null?" · "+center.min+" min":""}</span></div>`:"")+`<div class="intel-row"><span class="v muted">Couldn't reach the places service. Try again shortly.</span></div>`;
   }
+}
+
+/* ============================ FEMA flood zone ============================ */
+function floodInfo(zone,subty){
+  const z=(zone||"").toUpperCase().trim();
+  if(/^(A|AE|AH|AO|AR|A99|V|VE|VO)/.test(z)) return {level:z, label:(/^V/.test(z)?"High-risk coastal zone (waves)":"High-risk zone (Special Flood Hazard Area)"), color:"#f87171", note:"Lenders typically require flood insurance here."};
+  if(/0\.2/.test(subty||"")) return {level:"X (shaded)", label:"Moderate risk — 0.2% annual chance (500-yr)", color:"#fbbf24", note:"Outside the high-risk zone; flood insurance optional but advised."};
+  if(z==="X"||z==="X500") return {level:"X", label:"Minimal flood risk", color:"#34d399", note:"Outside the FEMA high-risk flood zone."};
+  if(!z) return {level:"—", label:"No FEMA zone mapped at this point", color:"#475569", note:"Verify on msc.fema.gov."};
+  return {level:z, label:"Zone "+z, color:"#fbbf24", note:""};
+}
+async function loadFlood(l){
+  const box=$("floodBox"); if(!box) return;
+  try{
+    const u=`https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer/0/query?geometry=${l.lng},${l.lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=FLD_ZONE,ZONE_SUBTY&returnGeometry=false&f=json`;
+    const r=await fetch(u); const d=await r.json();
+    if(currentListing!==l) return;
+    const a=(d.features&&d.features[0]&&d.features[0].attributes)||{};
+    const info=floodInfo(a.FLD_ZONE,a.ZONE_SUBTY);
+    l._floodZone=info.level;
+    box.innerHTML=`<div class="intel-row"><span>🌊 FEMA flood zone</span><span class="v" style="color:${info.color}">${info.level}</span></div>
+      <div class="intel-row"><span class="v" style="color:${info.color};font-size:13px">${info.label}</span></div>
+      ${info.note?`<div class="intel-row"><span class="v muted" style="font-size:11px">${info.note}</span></div>`:""}
+      ${a.ZONE_SUBTY&&!/0\.2/.test(a.ZONE_SUBTY)?`<div class="intel-row"><span class="v muted" style="font-size:11px">${a.ZONE_SUBTY}</span></div>`:""}`;
+    refreshMortgage();
+  }catch(e){ if(currentListing===l) box.innerHTML='<div class="intel-row"><span class="v muted">Couldn\'t load FEMA flood data.</span></div>'; }
+}
+
+/* ============================ Nearby schools (Overpass + live ratings) ============================ */
+function schoolLevel(tags){
+  const lvl=(tags["isced:level"]||"").toString();
+  const nm=(tags.name||"").toLowerCase();
+  if(/high|secondary/.test(nm)||/3/.test(lvl)) return "High";
+  if(/middle|junior/.test(nm)||/2/.test(lvl)) return "Middle";
+  if(/elementary|primary|grade/.test(nm)||/1/.test(lvl)) return "Elementary";
+  return "School";
+}
+async function loadSchools(l){
+  const box=$("schoolsBox"); if(!box) return;
+  // If live listing provided school ratings, show those first.
+  if(Array.isArray(l.schools)&&l.schools.length){
+    box.innerHTML=l.schools.slice(0,4).map(s=>`<div class="intel-row"><span>🏫 ${s.name||"School"} <span class="v muted" style="font-weight:400;font-size:11px">${s.level||""}</span></span><span class="v">${s.rating!=null?`${s.rating}/10`:(s.distance!=null?s.distance+" mi":"")}</span></div>`).join("")
+      +`<div class="intel-row"><span class="v muted" style="font-size:11px">GreatSchools ratings via listing data</span></div>`;
+    return;
+  }
+  const r=4000;
+  const ql=`[out:json][timeout:18];(node["amenity"="school"](around:${r},${l.lat},${l.lng});way["amenity"="school"](around:${r},${l.lat},${l.lng}););out center 30;`;
+  try{
+    const res=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(ql)});
+    if(!res.ok) throw new Error("overpass");
+    const data=await res.json();
+    const seen=new Set(); const schools=[];
+    data.elements.forEach(e=>{
+      const t=e.tags||{}; const name=t.name; if(!name||seen.has(name))return; seen.add(name);
+      const lat=e.lat!=null?e.lat:(e.center&&e.center.lat), lon=e.lon!=null?e.lon:(e.center&&e.center.lon);
+      if(lat==null)return;
+      schools.push({name, level:schoolLevel(t), d:haversine(l.lat,l.lng,lat,lon)});
+    });
+    schools.sort((a,b)=>a.d-b.d);
+    if(currentListing!==l) return;
+    if(!schools.length){ box.innerHTML='<div class="intel-row"><span class="v muted">No schools found within 2.5 mi.</span></div>'; return; }
+    box.innerHTML=schools.slice(0,4).map(s=>`<div class="intel-row"><span>🏫 ${s.name} <span class="v muted" style="font-weight:400;font-size:11px">${s.level}</span></span><span class="v">${s.d.toFixed(1)} mi</span></div>`).join("")
+      +`<div class="intel-row"><span class="v muted" style="font-size:11px">Names & distance from OpenStreetMap · GreatSchools ratings show with live listings</span></div>`;
+  }catch(e){ if(currentListing===l) box.innerHTML='<div class="intel-row"><span class="v muted">Couldn\'t load schools. Try again shortly.</span></div>'; }
 }
 
 /* ============================ Drive time to landmarks (OSRM) ============================ */
@@ -934,7 +1049,7 @@ function normalizeLive(r,mode){
     lat:coord.lat!=null?Number(coord.lat):null, lng:coord.lon!=null?Number(coord.lon):null,
     stateAbbr:(a.state_code||a.state||state.filters.stateCode||"").toUpperCase().slice(0,2),
     gated:false, amen:Object.assign(emptyAmen(),{garage:(Number(d.garage)||0)>0}), garageSpaces:Number(d.garage)||0, crime:null, photos,
-    agent:liveAgent(r), phone:livePhone(r), brokerage:liveBrokerage(r),
+    agent:liveAgent(r), phone:livePhone(r), brokerage:liveBrokerage(r), schools:liveSchools(r),
     desc:(r.description&&r.description.text)||`${mapType(d.type||r.prop_type)} in ${a.city||"the area"}.`,
   };
 }
@@ -950,6 +1065,11 @@ function livePhone(r){
 function liveBrokerage(r){
   const adv=(r.advertisers&&r.advertisers[0])||{};
   return (adv.office&&adv.office.name)||(adv.broker&&adv.broker.name)||(r.branding&&r.branding[0]&&r.branding[0].name)||"";
+}
+function liveSchools(r){
+  const raw=r.nearbySchools||r.schools||(r.location&&r.location.schools)||(r.schools&&r.schools.schools);
+  if(!Array.isArray(raw)||!raw.length) return null;
+  return raw.map(s=>({ name:s.name||s.school_name, level:(s.education_levels&&s.education_levels[0])||s.level||s.funding_type||"", rating:(s.rating!=null?s.rating:(s.great_schools_rating!=null?s.great_schools_rating:null)), distance:(s.distance_in_miles!=null?Number(s.distance_in_miles).toFixed(1):null) })).filter(s=>s.name);
 }
 function escapeHtml(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 function liveMsg(html){ $("emptyState").style.display="none"; $("grid").innerHTML=`<div style="grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-size:14px;line-height:1.6">${html}</div>`; }
