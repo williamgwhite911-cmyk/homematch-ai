@@ -194,6 +194,9 @@
   .place-item { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 14px; }
   .place-item .del { margin-left: auto; background: transparent; border: none; color: var(--danger); font-size: 16px; }
 
+  .price-pin span { background: var(--accent); color: #06223f; font-weight: 800; font-size: 12px; padding: 4px 9px; border-radius: 999px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.45); border: 2px solid #fff; display: inline-block; transform: translate(-50%,-100%); }
+  .price-pin.buy span { background: var(--buy); }
+  .price-pin.rent span { background: var(--rent); }
   .fab { position: fixed; left: 18px; bottom: 18px; z-index: 650; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #06223f; border: none; padding: 14px 22px; border-radius: 999px; font-weight: 800; font-size: 15px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 8px; }
   .fab:active { transform: scale(.96); }
   .fab .spinner { color: #06223f; }
@@ -321,6 +324,7 @@
     <div class="result-bar">
       <button class="nav-btn filters-toggle" id="filtersToggle">⚙ Filters</button>
       <button class="nav-btn" id="liveBtn">⚡ Live listings</button>
+      <button class="nav-btn" id="viewToggle">🗺️ Map</button>
       <span class="count" id="resultCount"></span>
       <select id="fSort">
         <option value="relevance">Sort: Featured</option>
@@ -332,6 +336,7 @@
     </div>
 
     <div class="grid" id="grid"></div>
+    <div id="resultsMap" style="display:none;height:560px;border-radius:14px;border:1px solid var(--border);overflow:hidden;z-index:1"></div>
     <div class="empty" id="emptyState" style="display:none">No properties match your filters. Try clearing some.</div>
   </div>
 </div>
@@ -483,6 +488,7 @@ const state = {
   places:JSON.parse(localStorage.getItem("hm_places")||"[]"),
   showFavsOnly:false,
   source:"demo",
+  layout:"grid",
   ai:{ provider:localStorage.getItem("hm_ai_provider")||"anthropic", key:localStorage.getItem("hm_ai_key")||"", model:localStorage.getItem("hm_ai_model")||"" },
   live:{ key:localStorage.getItem("hm_rapid_key")||"", host:localStorage.getItem("hm_rapid_host")||"us-real-estate.p.rapidapi.com" },
   crime:{ key:localStorage.getItem("hm_crime_key")||"DEMO_KEY" },
@@ -541,10 +547,38 @@ function render(){
   grid.innerHTML="";
   const banner=document.querySelector(".demo-banner"); if(banner) banner.style.display = live?"none":"block";
   const lb=$("liveBtn"); if(lb) lb.classList.toggle("primary",live);
-  $("emptyState").style.display = rows.length?"none":"block";
   $("resultCount").textContent = (live?"⚡ Live · ":"")+rows.length+(rows.length===1?" home":" homes");
-  rows.forEach(l=>grid.appendChild(card(l)));
   $("favCount").textContent = state.favorites.size;
+  const mapMode = state.layout==="map";
+  grid.style.display = mapMode?"none":"grid";
+  $("resultsMap").style.display = mapMode?"block":"none";
+  $("emptyState").style.display = (!rows.length&&!mapMode)?"block":"none";
+  if(mapMode){ renderResultsMap(rows); }
+  else { rows.forEach(l=>grid.appendChild(card(l))); }
+}
+let resultsMap=null;
+function shortPrice(n,mode){
+  let s; if(n>=1e6) s="$"+(n/1e6).toFixed(n%1e6?1:0)+"M"; else if(n>=1e3) s="$"+Math.round(n/1e3)+"k"; else s="$"+n;
+  return s+(mode==="rent"?"/mo":"");
+}
+function renderResultsMap(rows){
+  const el=$("resultsMap"); if(!el||typeof L==="undefined") return;
+  const pts=rows.filter(l=>l.lat!=null&&l.lng!=null);
+  if(!resultsMap){
+    resultsMap=L.map(el,{scrollWheelZoom:true});
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(resultsMap);
+  }
+  if(resultsMap._hmLayer){ resultsMap.removeLayer(resultsMap._hmLayer); }
+  const group=L.layerGroup().addTo(resultsMap); resultsMap._hmLayer=group;
+  if(!pts.length){ resultsMap.setView([27.0,-81.5],6); setTimeout(()=>resultsMap.invalidateSize(),80); return; }
+  const bounds=[];
+  pts.forEach(l=>{
+    const icon=L.divIcon({className:`price-pin ${l.mode}`,html:`<span>${shortPrice(l.price,l.mode)}</span>`,iconSize:[0,0]});
+    const m=L.marker([l.lat,l.lng],{icon}).addTo(group);
+    m.on("click",()=>openDetail(l));
+    bounds.push([l.lat,l.lng]);
+  });
+  setTimeout(()=>{ resultsMap.invalidateSize(); try{ resultsMap.fitBounds(bounds,{padding:[40,40],maxZoom:14}); }catch(e){} },80);
 }
 function amenLabel(a,l){ return (a.key==="garage"&&l.garageSpaces)?`${l.garageSpaces}-car garage`:a.label; }
 function safetyBadge(l){
@@ -631,6 +665,10 @@ function openDetail(l){
       <div id="mortgageOut"></div>
     </div>`:""}
 
+    <div class="section"><h3>📈 Price history</h3>
+      <div id="priceHistory"></div>
+    </div>
+
     <div class="section"><h3>📍 Location intelligence</h3>
       <div id="miniMap"></div>
       <div class="intel-grid">
@@ -678,6 +716,7 @@ function openDetail(l){
   if(l.mode==="buy"){ ["mDown","mRate","mTerm"].forEach(id=>$(id)?.addEventListener("input",refreshMortgage)); refreshMortgage(); }
 
   $("detailOverlay").classList.add("open");
+  renderPriceHistory(l);
   loadCrime(l);
   if(l.lat!=null&&l.lng!=null){ setTimeout(()=>initMap(l),60); loadNearby(l); loadSchools(l); loadLandmarks(l); loadCommute(l); loadFlood(l); }
   else {
@@ -1070,7 +1109,7 @@ function normalizeLive(r,mode){
     lat:coord.lat!=null?Number(coord.lat):null, lng:coord.lon!=null?Number(coord.lon):null,
     stateAbbr:(a.state_code||a.state||state.filters.stateCode||"").toUpperCase().slice(0,2),
     gated:false, amen:Object.assign(emptyAmen(),{garage:(Number(d.garage)||0)>0}), garageSpaces:Number(d.garage)||0, crime:null, photos,
-    agent:liveAgent(r), phone:livePhone(r), brokerage:liveBrokerage(r), schools:liveSchools(r),
+    agent:liveAgent(r), phone:livePhone(r), brokerage:liveBrokerage(r), schools:liveSchools(r), priceHistory:liveHistory(r),
     desc:(r.description&&r.description.text)||`${mapType(d.type||r.prop_type)} in ${a.city||"the area"}.`,
   };
 }
@@ -1086,6 +1125,21 @@ function livePhone(r){
 function liveBrokerage(r){
   const adv=(r.advertisers&&r.advertisers[0])||{};
   return (adv.office&&adv.office.name)||(adv.broker&&adv.broker.name)||(r.branding&&r.branding[0]&&r.branding[0].name)||"";
+}
+function liveHistory(r){
+  const raw=r.property_history||r.price_history||(r.history)||null;
+  if(!Array.isArray(raw)||!raw.length) return null;
+  const pts=raw.map(h=>{
+    const price=Number(h.price||h.list_price||h.amount||(h.listing&&h.listing.price));
+    const date=h.date||h.listing_date||h.event_date||h.year;
+    if(!price||!date) return null;
+    const label=String(date).slice(0,4);
+    return {label, price};
+  }).filter(Boolean);
+  // de-dup by label, sort ascending by label
+  const seen={}; pts.forEach(p=>{seen[p.label]=p;});
+  const out=Object.values(seen).sort((a,b)=>a.label.localeCompare(b.label));
+  return out.length>=2?out:null;
 }
 function liveSchools(r){
   const raw=r.nearbySchools||r.schools||(r.location&&r.location.schools)||(r.schools&&r.schools.schools);
@@ -1149,6 +1203,41 @@ async function fetchLive(){
     liveError(lastErr,city,stateCode);
   }catch(e){ liveError(e.message,city,stateCode); }
   btn.disabled=false; btn.innerHTML="⚡ Live listings";
+}
+
+/* ============================ Price history ============================ */
+function priceHistoryFor(l){
+  if(Array.isArray(l.priceHistory)&&l.priceHistory.length) return {points:l.priceHistory,estimated:false};
+  // Synthesize a plausible upward trend ending at today's price (deterministic per listing).
+  const now=2026; const seedA=(l.id%5)+3, seedB=((l.id*7)%6);
+  const years=[now-5,now-3,now-1,now];
+  const factors=[0.74-seedA*0.006, 0.85-seedA*0.004, 0.93-seedB*0.005, 1]; // earliest cheapest → current = full price
+  const step=l.price>100000?1000:25;
+  const pts=years.map((y,i)=>({label:String(y), price:Math.round(l.price*factors[i]/step)*step}));
+  return {points:pts, estimated:true};
+}
+function priceChart(points,mode){
+  const w=320,h=90,pad=18; const prices=points.map(p=>p.price); const min=Math.min(...prices),max=Math.max(...prices),rng=(max-min)||1;
+  const X=i=>pad+i*(w-2*pad)/Math.max(1,points.length-1); const Y=p=>h-22-(p-min)/rng*(h-34);
+  const line=points.map((p,i)=>`${i?"L":"M"}${X(i).toFixed(1)},${Y(p.price).toFixed(1)}`).join(" ");
+  const dots=points.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.price).toFixed(1)}" r="3.5" fill="var(--accent-2)"/>`).join("");
+  const labels=points.map((p,i)=>`<text x="${X(i).toFixed(1)}" y="${h-4}" font-size="9" fill="#93a1b1" text-anchor="middle">${p.label}</text>`).join("");
+  const vals=points.map((p,i)=>`<text x="${X(i).toFixed(1)}" y="${(Y(p.price)-7).toFixed(1)}" font-size="9" fill="#e7edf3" text-anchor="middle">${shortPrice(p.price,mode)}</text>`).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="xMidYMid meet" style="max-height:120px"><polyline points="" /><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}${vals}${labels}</svg>`;
+}
+function renderPriceHistory(l){
+  const box=$("priceHistory"); if(!box) return;
+  const {points,estimated}=priceHistoryFor(l);
+  if(!points||points.length<2){ box.innerHTML='<div class="intel-row"><span class="v muted">No price history available.</span></div>'; return; }
+  const first=points[0].price, last=points[points.length-1].price;
+  const chg=last-first, pct=first?Math.round(chg/first*100):0;
+  const col=chg>=0?"#34d399":"#f87171";
+  box.innerHTML=`
+    <div class="intel-card">
+      ${priceChart(points,l.mode)}
+      <div class="intel-row" style="margin-top:6px"><span>Change ${points[0].label}–${points[points.length-1].label}</span><span class="v" style="color:${col}">${chg>=0?"+":""}${money(chg)} (${pct>=0?"+":""}${pct}%)</span></div>
+      <div class="intel-row"><span class="v muted" style="font-size:11px">${estimated?"Estimated trend (sample) — real history loads with live listings":"Source: listing provider"}</span></div>
+    </div>`;
 }
 
 /* ============================ Crime stats (FBI Crime Data API) ============================ */
@@ -1403,6 +1492,7 @@ document.querySelectorAll("#modeToggle button").forEach(b=>b.addEventListener("c
 $("aiSearchBtn").addEventListener("click",runAISearch);
 $("aiQuery").addEventListener("keydown",e=>{ if(e.key==="Enter") runAISearch(); });
 $("filtersToggle").addEventListener("click",()=>$("sidebar").classList.toggle("open"));
+$("viewToggle").addEventListener("click",()=>{ state.layout = state.layout==="map"?"grid":"map"; $("viewToggle").innerHTML = state.layout==="map"?"▤ List":"🗺️ Map"; $("viewToggle").classList.toggle("primary",state.layout==="map"); render(); });
 $("fabSearch").addEventListener("click",()=>{
   showView("browse");
   $("sidebar").classList.remove("open");
