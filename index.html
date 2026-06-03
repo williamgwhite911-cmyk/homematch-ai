@@ -1209,19 +1209,30 @@ async function fetchLive(){
   liveMsg(`<span class="spinner"></span> Searching live listings in <b>${escapeHtml(city)}, ${stateCode}</b>…`);
   let lastErr="No endpoint responded.";
   try{
+    outer:
     for(const path of paths){
-      let res;
-      try{ res=await fetch(`https://${host}${path}?${qs}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}}); }
-      catch(netErr){ lastErr="Network/CORS error: "+netErr.message+"\n(host: "+host+")"; continue; }
-      if(res.status===429){ lastErr="HTTP 429 — RapidAPI rate limit hit. The free plan is limited; wait ~1 minute and search again."; break; }
-      if(res.status===404||res.status===403){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,150); continue; }
-      if(!res.ok){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,220); break; }
-      let data; try{ data=await res.json(); }catch(_){ lastErr="Response wasn't JSON ("+path+")."; break; }
-      const results=extractResults(data);
-      if(!Array.isArray(results)){ lastErr="Connected ("+path+") but couldn't find listings array.\nTop-level keys: "+Object.keys(data||{}).join(", ")+(data&&data.data?"\ndata.* keys: "+Object.keys(data.data).join(", "):""); break; }
-      LIVE=results.map(r=>normalizeLive(r,state.mode)).filter(x=>x.price||x.photos.length);
-      if(LIVE.length){ state.source="live"; render(); toast(`Loaded ${LIVE.length} live listings ⚡`); btn.disabled=false; btn.innerHTML="⚡ Live listings"; loadStateSafety(stateCode); return; }
-      lastErr="Connected ("+path+") but got 0 usable listings for "+city+", "+stateCode+".\nTry another city, switch Rent/Buy, or widen filters.";
+      for(let attempt=0; attempt<4; attempt++){
+        if(attempt){ liveMsg(`<span class="spinner"></span> Fetching listings in <b>${escapeHtml(city)}, ${stateCode}</b>… (retry ${attempt})`); await new Promise(r=>setTimeout(r,1500)); }
+        let res;
+        try{ res=await fetch(`https://${host}${path}?${qs}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}}); }
+        catch(netErr){ lastErr="Network/CORS error: "+netErr.message+"\n(host: "+host+")"; continue outer; }
+        if(res.status===429){ lastErr="HTTP 429 — RapidAPI rate limit hit. The free plan allows only a few requests at a time; wait ~1 minute and search again."; break outer; }
+        if(res.status===404||res.status===403){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,150); continue outer; }
+        if(!res.ok){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,220); break outer; }
+        let data; try{ data=await res.json(); }catch(_){ lastErr="Response wasn't JSON ("+path+")."; break outer; }
+        const results=extractResults(data);
+        if(Array.isArray(results)&&results.length){
+          LIVE=results.map(r=>normalizeLive(r,state.mode)).filter(x=>x.price||x.photos.length);
+          if(state.filters.sort==="relevance") LIVE.sort((a,b)=>(realPhotos(a).length?0:1)-(realPhotos(b).length?0:1)); // photos first
+          if(LIVE.length){ state.source="live"; render(); toast(`Loaded ${LIVE.length} live listings ⚡`); btn.disabled=false; btn.innerHTML="⚡ Live listings"; loadStateSafety(stateCode); return; }
+        }
+        // 200 but empty — the free API intermittently returns an empty payload; retry the same path.
+        const total=(data&&data.data&&data.data.home_search&&data.data.home_search.total)||0;
+        lastErr= total>0
+          ? "The API returned an empty page (it does this intermittently on the free plan). Tap ⚡ Search again — there are "+total.toLocaleString()+" listings in "+city+", "+stateCode+"."
+          : "No listings found for "+city+", "+stateCode+". Try another city, switch Rent/Buy, or widen filters.";
+        if(!(total>0)) continue outer; // genuinely empty → try next path/format
+      }
     }
     liveError(lastErr,city,stateCode);
   }catch(e){ liveError(e.message,city,stateCode); }
