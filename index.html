@@ -1108,7 +1108,7 @@ async function callAI(system,user){
 /* ============================ Live listings (RapidAPI / Realtor) ============================ */
 function emptyAmen(){ const o={}; AMEN.forEach(a=>o[a.key]=false); return o; }
 function mapType(t){ t=(t||"").toLowerCase(); if(t.includes("condo"))return "Condo"; if(t.includes("town"))return "Townhome"; if(t.includes("apart")||t.includes("multi"))return "Apartment"; return "House"; }
-function sortParam(s){ return s==="price-asc"?"price_low":s==="price-desc"?"price_high":"relevant"; }
+function sortParam(s){ return s==="price-asc"?"price_low":s==="price-desc"?"price_high":"newest"; }
 function normalizeLive(r,mode){
   const d=r.description||{};
   const a=(r.location&&r.location.address)||r.address||{};
@@ -1204,7 +1204,7 @@ async function fetchLive(){
   if(f.beds) qs.set("beds_min",f.beds); if(f.baths) qs.set("baths_min",f.baths);
   if(f.sqftMin) qs.set("sqft_min",f.sqftMin); if(f.sqftMax) qs.set("sqft_max",f.sqftMax);
   if(f.types.length){ const tm={House:"single_family",Condo:"condos",Townhome:"townhomes",Apartment:"multi_family"}; const pt=f.types.map(t=>tm[t]).filter(Boolean).join(","); if(pt) qs.set("property_type",pt); }
-  const paths = state.mode==="rent" ? ["/v2/for-rent","/for-rent","/v3/for-rent"] : ["/v2/for-sale","/for-sale","/v3/for-sale"];
+  const paths = state.mode==="rent" ? ["/v3/for-rent","/v2/for-rent","/for-rent"] : ["/v3/for-sale","/v2/for-sale","/for-sale"];
   const btn=$("liveBtn"); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Searching…';
   liveMsg(`<span class="spinner"></span> Searching live listings in <b>${escapeHtml(city)}, ${stateCode}</b>…`);
   let lastErr="No endpoint responded.";
@@ -1213,7 +1213,8 @@ async function fetchLive(){
       let res;
       try{ res=await fetch(`https://${host}${path}?${qs}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}}); }
       catch(netErr){ lastErr="Network/CORS error: "+netErr.message+"\n(host: "+host+")"; continue; }
-      if(res.status===404){ lastErr="HTTP 404 — tried "+path+" on "+host; continue; }
+      if(res.status===429){ lastErr="HTTP 429 — RapidAPI rate limit hit. The free plan is limited; wait ~1 minute and search again."; break; }
+      if(res.status===404||res.status===403){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,150); continue; }
       if(!res.ok){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,220); break; }
       let data; try{ data=await res.json(); }catch(_){ lastErr="Response wasn't JSON ("+path+")."; break; }
       const results=extractResults(data);
