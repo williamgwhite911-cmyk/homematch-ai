@@ -225,6 +225,10 @@
       <select id="fState" style="margin-top:8px"></select>
     </div>
     <div class="fgroup">
+      <h4>Search by agent</h4>
+      <input type="text" id="fAgent" placeholder="Agent name">
+    </div>
+    <div class="fgroup">
       <h4>Price range</h4>
       <div class="frow">
         <input type="text" inputmode="numeric" id="fMin" placeholder="$ Min">
@@ -255,6 +259,14 @@
         <button data-v="" class="active">Any</button>
         <button data-v="1">1+</button><button data-v="2">2+</button>
         <button data-v="3">3+</button><button data-v="4">4+</button>
+      </div>
+    </div>
+    <div class="fgroup">
+      <h4>Garage</h4>
+      <div class="seg" id="garageSeg">
+        <button data-v="" class="active">Any</button>
+        <button data-v="1">1+ car</button><button data-v="2">2+ car</button>
+        <button data-v="3">3+ car</button><button data-v="4">4+</button>
       </div>
     </div>
     <div class="fgroup">
@@ -401,6 +413,15 @@ const AGENTS=[
   {name:"Aisha Patel",phone:"(786) 555-0117"},{name:"Robert Nguyen",phone:"(954) 555-0163"},
   {name:"Sofia Rossi",phone:"(305) 555-0199"},{name:"David Brooks",phone:"(786) 555-0124"},
 ];
+// Popular South-Florida destinations — drive time/distance shown on each listing.
+const PRESET_DESTS=[
+  {name:"Key West",lat:24.5551,lng:-81.8000},
+  {name:"Marathon",lat:24.7137,lng:-81.0905},
+  {name:"South Beach",lat:25.7826,lng:-80.1340},
+  {name:"Downtown Miami",lat:25.7743,lng:-80.1937},
+  {name:"Fort Lauderdale",lat:26.1224,lng:-80.1373},
+];
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DEFAULT_MODELS = { anthropic:"claude-haiku-4-5", openai:"gpt-4o-mini" };
 const img = (id, w) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=${w}&q=70`;
 const EXT = ["1568605114967-8130f3a36994","1570129477492-45c003edd2be","1512917774080-9991f1c4c750","1564013799919-ab600027ffc6","1613490493576-7fde63acd811","1600596542815-ffad4c1539a9","1600585154340-be6161a56a0c","1605276374104-dee2a0ed3cd6","1605146769289-440113cc3d00"];
@@ -428,12 +449,13 @@ LISTINGS.forEach(l=>{
   const a=AGENTS[l.id%AGENTS.length]; l.agent=l.agent||a.name; l.phone=l.phone||a.phone;
   if(l.amen.petsDogs===undefined) l.amen.petsDogs=(l.id%2===0);
   if(l.amen.petsCats===undefined) l.amen.petsCats=(l.id%3!==0);
+  if(l.garageSpaces===undefined) l.garageSpaces = l.amen.garage ? ((l.id%3)+1) : 0;
 });
 
 /* ============================ State ============================ */
 const state = {
   mode:"rent", view:"browse",
-  filters:{ loc:"", stateCode:"FL", min:"", max:"", types:[], gated:false, beds:"", baths:"", sqftMin:"", sqftMax:"", amen:[], sort:"relevance" },
+  filters:{ loc:"", stateCode:"FL", min:"", max:"", types:[], gated:false, beds:"", baths:"", garage:"", agent:"", sqftMin:"", sqftMax:"", amen:[], sort:"relevance" },
   favorites:new Set(JSON.parse(localStorage.getItem("hm_favs")||"[]")),
   places:JSON.parse(localStorage.getItem("hm_places")||"[]"),
   showFavsOnly:false,
@@ -472,6 +494,8 @@ function applyFilters(){
   if (f.gated) rows = rows.filter(l=>l.gated);
   if (f.beds) rows = rows.filter(l=>l.beds>=Number(f.beds));
   if (f.baths) rows = rows.filter(l=>l.baths>=Number(f.baths));
+  if (f.garage) rows = rows.filter(l=>(l.garageSpaces||0)>=Number(f.garage));
+  if (f.agent) { const q=f.agent.toLowerCase(); rows = rows.filter(l=>(l.agent||"").toLowerCase().includes(q)); }
   if (f.sqftMin) rows = rows.filter(l=>l.sqft>=Number(f.sqftMin));
   if (f.sqftMax) rows = rows.filter(l=>l.sqft<=Number(f.sqftMax));
   if (f.amen.length) rows = rows.filter(l=>f.amen.every(k=>l.amen[k]));
@@ -483,7 +507,8 @@ function applyFilters(){
 }
 function render(){
   const live = state.source==="live";
-  const rows = live ? LIVE : applyFilters();
+  let rows = live ? LIVE : applyFilters();
+  if (live && state.filters.agent){ const q=state.filters.agent.toLowerCase(); rows = rows.filter(l=>(l.agent||"").toLowerCase().includes(q)); }
   const grid=$("grid");
   grid.innerHTML="";
   const banner=document.querySelector(".demo-banner"); if(banner) banner.style.display = live?"none":"block";
@@ -493,8 +518,9 @@ function render(){
   rows.forEach(l=>grid.appendChild(card(l)));
   $("favCount").textContent = state.favorites.size;
 }
+function amenLabel(a,l){ return (a.key==="garage"&&l.garageSpaces)?`${l.garageSpaces}-car garage`:a.label; }
 function amenPills(l){
-  return AMEN.filter(a=>l.amen[a.key]).slice(0,4).map(a=>`<span class="amen-pill">${a.icon} ${a.label}</span>`).join("");
+  return AMEN.filter(a=>l.amen[a.key]).slice(0,4).map(a=>`<span class="amen-pill">${a.icon} ${amenLabel(a,l)}</span>`).join("");
 }
 function card(l){
   const el=document.createElement("div"); el.className="card";
@@ -547,13 +573,13 @@ function openDetail(l){
       <div class="modal-spec"><b>${l.sqft.toLocaleString()}</b> Sq Ft</div>
       <div class="modal-spec"><b>$${ppsf}</b>/sqft</div>
     </div>
-    <div class="chips" style="margin-bottom:14px">${AMEN.filter(a=>l.amen[a.key]).map(a=>`<span class="chip">${a.icon} ${a.label}</span>`).join("")||'<span class="sub-addr">No listed amenities</span>'}</div>
+    <div class="chips" style="margin-bottom:14px">${AMEN.filter(a=>l.amen[a.key]).map(a=>`<span class="chip">${a.icon} ${amenLabel(a,l)}</span>`).join("")||'<span class="sub-addr">No listed amenities</span>'}</div>
     <div class="desc">${l.desc}</div>
 
     ${l.agent?`<div class="section" style="border-top:none;padding-top:14px;margin-top:14px">
       <div class="intel-card" style="display:flex;align-items:center;gap:14px">
         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:grid;place-items:center;font-weight:800;color:#06223f">${l.agent.split(" ").map(w=>w[0]).join("").slice(0,2)}</div>
-        <div><div style="font-size:12px;color:var(--muted)">Listing agent</div><div style="font-weight:700">${l.agent}</div></div>
+        <div><div style="font-size:12px;color:var(--muted)">Listing agent</div><div class="agent-name" data-agent="${(l.agent||'').replace(/"/g,'&quot;')}" style="font-weight:700;color:var(--accent);cursor:pointer">${l.agent} › <span style="font-size:11px;color:var(--muted);font-weight:400">see all listings</span></div></div>
         ${l.phone?`<a href="tel:${l.phone.replace(/[^\\d+]/g,"")}" style="margin-left:auto;background:var(--accent-2);color:#053826;text-decoration:none;font-weight:700;padding:9px 14px;border-radius:9px">📞 ${l.phone}</a>`:""}
       </div></div>`:""}
 
@@ -567,6 +593,10 @@ function openDetail(l){
         <div class="intel-card">
           <h5>What's nearby</h5>
           <div id="nearby"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Finding nearby places…</span></div></div>
+        </div>
+        <div class="intel-card">
+          <h5>Drive time to popular spots</h5>
+          <div id="landmarks"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Calculating…</span></div></div>
         </div>
         <div class="intel-card" style="grid-column:1/-1">
           <h5>Commute from your places</h5>
@@ -585,16 +615,18 @@ function openDetail(l){
       <div class="advisor-chat"><input id="advisorInput" placeholder="e.g. Is this good for a family? What should I offer?"><button id="advisorSend">Ask</button></div>
     </div>`;
 
+  $("detailBody").querySelector(".agent-name")?.addEventListener("click",e=>filterByAgent(e.currentTarget.dataset.agent));
   $("detailBody").querySelectorAll(".advisor-actions button").forEach(b=>b.addEventListener("click",()=>advisorAsk(presetQuestion(b.dataset.act))));
   $("advisorSend").addEventListener("click",()=>{ const v=$("advisorInput").value.trim(); if(v){ advisorAsk(v); $("advisorInput").value=""; } });
   $("advisorInput").addEventListener("keydown",e=>{ if(e.key==="Enter") $("advisorSend").click(); });
 
   $("detailOverlay").classList.add("open");
   loadCrime(l);
-  if(l.lat!=null&&l.lng!=null){ setTimeout(()=>initMap(l),60); loadNearby(l); loadCommute(l); }
+  if(l.lat!=null&&l.lng!=null){ setTimeout(()=>initMap(l),60); loadNearby(l); loadLandmarks(l); loadCommute(l); }
   else {
     $("miniMap").innerHTML='<div style="padding:20px;color:var(--muted);font-size:13px">No map coordinates for this listing.</div>';
     const nb=$("nearby"); if(nb) nb.innerHTML='<div class="intel-row"><span class="v muted">Location data unavailable</span></div>';
+    const lm=$("landmarks"); if(lm) lm.innerHTML='<div class="intel-row"><span class="v muted">Location data unavailable</span></div>';
     const cm=$("commute"); if(cm) cm.innerHTML='<div class="commute-empty">Location data unavailable</div>';
   }
 }
@@ -674,6 +706,35 @@ async function loadNearby(l){
     if(currentListing!==l) return;
     box.innerHTML=(center&&center.mi!=null?`<div class="intel-row"><span>🏙️ City center</span><span class="v">${center.mi.toFixed(1)} mi${center.min!=null?" · "+center.min+" min":""}</span></div>`:"")+`<div class="intel-row"><span class="v muted">Couldn't reach the places service. Try again shortly.</span></div>`;
   }
+}
+
+/* ============================ Drive time to landmarks (OSRM) ============================ */
+async function loadLandmarks(l){
+  const box=$("landmarks"); if(!box) return;
+  const dests=PRESET_DESTS.filter(d=>haversine(l.lat,l.lng,d.lat,d.lng)>0.5); // skip if you're basically there
+  if(!dests.length){ box.innerHTML='<div class="intel-row"><span class="v muted">You\'re right in the area.</span></div>'; return; }
+  box.innerHTML=dests.map((d,i)=>`<div class="intel-row" data-li="${i}"><span>🚗 ${d.name}</span><span class="v muted"><span class="spinner"></span></span></div>`).join("");
+  for(let i=0;i<dests.length;i++){
+    const d=dests[i];
+    try{
+      const res=await fetch(`https://router.project-osrm.org/route/v1/driving/${l.lng},${l.lat};${d.lng},${d.lat}?overview=false`);
+      const data=await res.json();
+      if(currentListing!==l) return;
+      const row=box.querySelector(`[data-li="${i}"] .v`); if(!row) continue;
+      if(data.routes&&data.routes[0]){ const mins=Math.round(data.routes[0].duration/60), mi=(data.routes[0].distance/1609).toFixed(0);
+        row.classList.remove("muted"); row.innerHTML=`${mins} min · ${mi} mi`; }
+      else row.innerHTML='<span class="muted">—</span>';
+    }catch(e){ const row=box.querySelector(`[data-li="${i}"] .v`); if(row) row.innerHTML='<span class="muted">—</span>'; }
+  }
+}
+function filterByAgent(name){
+  if(!name) return;
+  state.filters.agent=name;
+  $("detailOverlay").classList.remove("open");
+  syncFilterUI(); render();
+  $("sidebar").classList.add("open");
+  toast("Showing listings by "+name);
+  window.scrollTo({top:0,behavior:"smooth"});
 }
 
 /* ============================ Commute (OSRM) ============================ */
@@ -837,7 +898,7 @@ function normalizeLive(r,mode){
     addr:a.line||a.city||"",
     lat:coord.lat!=null?Number(coord.lat):null, lng:coord.lon!=null?Number(coord.lon):null,
     stateAbbr:(a.state_code||a.state||state.filters.stateCode||"").toUpperCase().slice(0,2),
-    gated:false, amen:emptyAmen(), crime:null, photos,
+    gated:false, amen:Object.assign(emptyAmen(),{garage:(Number(d.garage)||0)>0}), garageSpaces:Number(d.garage)||0, crime:null, photos,
     agent:liveAgent(r), phone:livePhone(r),
     desc:(r.description&&r.description.text)||`${mapType(d.type||r.prop_type)} in ${a.city||"the area"}.`,
   };
@@ -916,23 +977,30 @@ const US_VIOLENT=380, US_PROPERTY=1950;
 // FBI CDE "summarized" endpoint returns offenses.rates["<State> Offenses"] keyed by MM-YYYY,
 // where the year-end (December) value is the annual rate per 100k. We take the latest year's figure.
 async function fetchOffenseRate(st,offense,key){
-  // Finalized annual data only (to=12-2022) so we don't read a partial current year.
-  const u=`https://api.usa.gov/crime/fbi/cde/summarized/state/${st}/${offense}?from=01-2019&to=12-2022&API_KEY=${encodeURIComponent(key)}`;
+  // FBI returns MONTHLY rates per 100k + monthly actual counts. Annual rate = sum of the 12 monthly rates.
+  const u=`https://api.usa.gov/crime/fbi/cde/summarized/state/${st}/${offense}?from=01-2019&to=12-2023&API_KEY=${encodeURIComponent(key)}`;
   const c=new AbortController(), t=setTimeout(()=>c.abort(),9000);
   const r=await fetch(u,{signal:c.signal}); clearTimeout(t);
   if(!r.ok) throw new Error("HTTP "+r.status);
   const data=await r.json();
-  const rates=data&&data.offenses&&data.offenses.rates; if(!rates) return null;
-  const k=Object.keys(rates).find(x=>/offenses/i.test(x))||Object.keys(rates)[0]; if(!k) return null;
-  // The December ("12-YYYY") value is the year-end annual rate per 100k. Use the latest year present.
-  const dec=[];
-  for(const [mY,v] of Object.entries(rates[k])){ const val=Number(v); if(/^12-/.test(mY)&&!isNaN(val)&&val>1) dec.push({year:Number(mY.split("-")[1]),val}); }
-  if(dec.length){ dec.sort((a,b)=>a.year-b.year); const last=dec[dec.length-1]; return { rate:Math.round(last.val), year:last.year }; }
-  // Fallback: largest plausible annual value in the series.
-  const all=Object.entries(rates[k]).map(([mY,v])=>({year:Number(mY.split("-")[1]),val:Number(v)})).filter(e=>e.val>1&&!isNaN(e.year));
-  if(!all.length) return null;
-  const best=all.sort((a,b)=>a.val-b.val).pop();
-  return { rate:Math.round(best.val), year:best.year };
+  const off=data&&data.offenses; const rates=off&&off.rates; if(!rates) return null;
+  const stateKey=Object.keys(rates).find(x=>/offenses/i.test(x)&&!/united states/i.test(x))||Object.keys(rates).find(x=>/offenses/i.test(x)); if(!stateKey) return null;
+  const monthlyRates=rates[stateKey]||{};
+  const actuals=off.actuals||{};
+  const actKey=Object.keys(actuals).find(x=>/offenses/i.test(x)&&!/united states/i.test(x));
+  const monthlyCounts=(actKey&&actuals[actKey])||{};
+  const months={}; // year -> {mm: rate}
+  for(const [mY,v] of Object.entries(monthlyRates)){ const [mm,yyyy]=mY.split("-"); const yr=Number(yyyy); if(isNaN(yr))continue; (months[yr]=months[yr]||{})[mm]=Number(v); }
+  const years=Object.keys(months).map(Number).sort((a,b)=>a-b);
+  if(!years.length) return null;
+  // Score each year: complete (12 mo) + well-distributed (no month dominates). Some years dump the annual total into December.
+  const stats=years.map(yr=>{ const vals=Object.values(months[yr]).map(Number).filter(x=>!isNaN(x)); const sum=vals.reduce((a,b)=>a+b,0); const max=Math.max(0,...vals); return {yr,n:vals.length,sum,share:sum>0?max/sum:1}; });
+  const pick = stats.filter(s=>s.n>=12&&s.share<0.35).sort((a,b)=>a.yr-b.yr).pop()
+            || stats.filter(s=>s.n>=12).sort((a,b)=>a.yr-b.yr).pop()
+            || stats.sort((a,b)=>a.yr-b.yr).pop();
+  const chosen=pick.yr;
+  const series=[]; for(let m=1;m<=12;m++){ const mm=String(m).padStart(2,"0"); const k2=`${mm}-${chosen}`; series.push({ m, rate:monthlyRates[k2]!=null?Number(monthlyRates[k2]):null, count:monthlyCounts[k2]!=null?Number(monthlyCounts[k2]):null }); }
+  return { rate:Math.round(pick.sum), year:chosen, series, clean:(pick.n>=12&&pick.share<0.35) };
 }
 function crimeBadge(rate,ref){
   if(rate==null) return {label:"n/a",color:"#475569",pct:0};
@@ -940,6 +1008,22 @@ function crimeBadge(rate,ref){
   const color=ratio<0.85?"#34d399":ratio<1.15?"#fbbf24":"#f87171";
   const label=ratio<0.85?"Lower than US avg":ratio<1.15?"Near US avg":"Higher than US avg";
   return {label,color,pct:Math.min(100,Math.round(ratio*50))};
+}
+function monthlyChart(rec){
+  const s=rec.months; if(!s||!s.some(m=>m.count!=null||m.rate!=null)) return "";
+  const yr=rec.monthsYear||rec.year;
+  const vals=s.map(m=>m.count!=null?m.count:(m.rate!=null?m.rate:0));
+  const max=Math.max(1,...vals);
+  const bars=s.map((m,i)=>{
+    const v=vals[i], h=Math.round(v/max*48)+2;
+    const tip=`${MONTHS[i]} ${yr}: ${m.count!=null?m.count.toLocaleString()+" offenses":(m.rate!=null?m.rate+"/100k":"n/a")}`;
+    return `<div title="${tip}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px">
+      <div style="width:70%;height:${h}px;background:var(--accent);border-radius:3px 3px 0 0;opacity:${v?0.9:0.25}"></div>
+      <span style="font-size:8px;color:var(--muted)">${MONTHS[i][0]}</span></div>`;
+  }).join("");
+  return `<div style="border-top:1px solid var(--border);margin:8px 0 4px;padding-top:8px"></div>
+    <div class="intel-row"><span style="font-size:12px">📅 ${rec.monthsLabel} by month (${yr})</span></div>
+    <div style="display:flex;align-items:flex-end;gap:2px;height:62px;margin-top:6px">${bars}</div>`;
 }
 function crimeTypeRow(icon,label,rate){
   return `<div class="intel-row"><span style="font-size:13px">${icon} ${label}</span><span class="v">${rate!=null?rate:'<span class="muted">—</span>'}${rate!=null?'<span class="v muted" style="font-weight:400">/100k</span>':''}</span></div>`;
@@ -957,6 +1041,7 @@ function renderCrime(box,rec,l){
       ${crimeTypeRow("🔨","Burglary",rec.burglaryRate)}
       ${crimeTypeRow("💰","Robbery",rec.robberyRate)}
       ${crimeTypeRow("⚠️","Rape",rec.rapeRate)}
+      ${monthlyChart(rec)}
       <div class="intel-row"><span class="v muted" style="font-size:11px">${stateOf(l)} state-level · FBI UCR ${rec.year||""} · rate per 100k</span></div>`;
   } else box.innerHTML=crimeFallback(l,"No FBI record returned.");
 }
@@ -988,6 +1073,7 @@ async function loadCrime(l){
   }
   const rec={ violentRate:v?v.rate:null, propertyRate:p?p.rate:null,
     burglaryRate:bg?bg.rate:null, robberyRate:rb?rb.rate:null, rapeRate:rp?rp.rate:null,
+    months:(v&&v.clean&&v.series)||(p&&p.clean&&p.series)||null, monthsLabel:(v&&v.clean)?"Violent crime":"Property crime", monthsYear:(v&&v.clean)?v.year:(p&&p.year),
     year:(v&&v.year)||(p&&p.year)||(bg&&bg.year) };
   crimeCache[st]=rec;
   renderCrime(box,rec,l);
@@ -1044,13 +1130,15 @@ function syncFilterUI(){
   $("fMax").value=f.max?"$"+Number(f.max).toLocaleString("en-US"):"";
   $("fSqftMin").value=f.sqftMin; $("fSqftMax").value=f.sqftMax; $("fGated").checked=f.gated;
   $("typeChecks").querySelectorAll("input").forEach(c=>c.checked=f.types.includes(c.value));
+  $("fAgent").value=f.agent||"";
   $("bedSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.v===f.beds));
   $("bathSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.v===f.baths));
+  $("garageSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.v===(f.garage||"")));
   AMEN.forEach(a=>{ const c=$("amen_"+a.key); if(c) c.checked=f.amen.includes(a.key); });
 }
 function readFilterUI(){
   const f=state.filters;
-  f.loc=$("fLoc").value.trim(); f.stateCode=$("fState").value; f.min=$("fMin").value.replace(/[^\d]/g,""); f.max=$("fMax").value.replace(/[^\d]/g,"");
+  f.loc=$("fLoc").value.trim(); f.stateCode=$("fState").value; f.agent=$("fAgent").value.trim(); f.min=$("fMin").value.replace(/[^\d]/g,""); f.max=$("fMax").value.replace(/[^\d]/g,"");
   f.sqftMin=$("fSqftMin").value; f.sqftMax=$("fSqftMax").value; f.gated=$("fGated").checked;
   f.types=[...$("typeChecks").querySelectorAll("input:checked")].map(c=>c.value);
   f.amen=AMEN.filter(a=>$("amen_"+a.key)?.checked).map(a=>a.key);
@@ -1076,7 +1164,8 @@ $("filtersToggle").addEventListener("click",()=>$("sidebar").classList.toggle("o
 $("liveBtn").addEventListener("click",fetchLive);
 
 function wireFilters(){
-  ["fLoc","fSqftMin","fSqftMax"].forEach(id=>$(id).addEventListener("input",readFilterUI));
+  ["fLoc","fSqftMin","fSqftMax","fAgent"].forEach(id=>$(id).addEventListener("input",readFilterUI));
+  $("garageSeg").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ state.filters.garage=b.dataset.v; syncFilterUI(); render(); }));
   ["fMin","fMax"].forEach(id=>$(id).addEventListener("input",e=>{ const el=e.target,d=el.value.replace(/[^\d]/g,""); el.value=d?"$"+Number(d).toLocaleString("en-US"):""; readFilterUI(); }));
   $("fState").addEventListener("change",readFilterUI);
   $("fGated").addEventListener("change",readFilterUI);
@@ -1089,7 +1178,7 @@ function wireFilters(){
 document.querySelectorAll("#exampleChips .chip").forEach(c=>c.addEventListener("click",()=>{ $("aiQuery").value=c.textContent; runAISearch(); }));
 
 $("clearBtn").addEventListener("click",()=>{
-  state.filters={loc:"",min:"",max:"",types:[],gated:false,beds:"",baths:"",sqftMin:"",sqftMax:"",amen:[],sort:"relevance"};
+  state.filters={loc:"",stateCode:state.filters.stateCode,min:"",max:"",types:[],gated:false,beds:"",baths:"",garage:"",agent:"",sqftMin:"",sqftMax:"",amen:[],sort:"relevance"};
   $("fSort").value="relevance"; $("aiInterpreted").style.display="none"; $("aiQuery").value="";
   syncFilterUI(); state.showFavsOnly=false; state.source="demo"; render();
 });
