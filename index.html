@@ -1290,8 +1290,8 @@ async function fetchLive(){
   try{
     outer:
     for(const path of paths){
-      for(let attempt=0; attempt<3; attempt++){
-        if(attempt){ liveMsg(`<span class="spinner"></span> The API was busy — retrying in a moment… (${attempt}/2)`); await new Promise(r=>setTimeout(r,2500*attempt)); }
+      for(let attempt=0; attempt<2; attempt++){
+        if(attempt){ liveMsg(`<span class="spinner"></span> The API was busy — retrying once…`); await new Promise(r=>setTimeout(r,4000)); }
         let res;
         try{ res=await rapidFetch(`https://${host}${path}?${qs}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}}); }
         catch(netErr){ lastErr="Network/CORS error: "+netErr.message+"\n(host: "+host+")"; continue outer; }
