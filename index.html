@@ -193,6 +193,9 @@
   .place-item { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 14px; }
   .place-item .del { margin-left: auto; background: transparent; border: none; color: var(--danger); font-size: 16px; }
 
+  .fab { position: fixed; left: 18px; bottom: 18px; z-index: 650; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #06223f; border: none; padding: 14px 22px; border-radius: 999px; font-weight: 800; font-size: 15px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 8px; }
+  .fab:active { transform: scale(.96); }
+  .fab .spinner { color: #06223f; }
   .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 12px 20px; border-radius: 10px; box-shadow: var(--shadow); z-index: 900; opacity: 0; transition: .25s; pointer-events: none; font-size: 14px; }
   .toast.show { opacity: 1; bottom: 30px; }
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
@@ -398,6 +401,7 @@
   </div>
 </div></div></div>
 
+<button class="fab" id="fabSearch">🔍 Search</button>
 <div class="toast" id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -1325,6 +1329,13 @@ document.querySelectorAll("#modeToggle button").forEach(b=>b.addEventListener("c
 $("aiSearchBtn").addEventListener("click",runAISearch);
 $("aiQuery").addEventListener("keydown",e=>{ if(e.key==="Enter") runAISearch(); });
 $("filtersToggle").addEventListener("click",()=>$("sidebar").classList.toggle("open"));
+$("fabSearch").addEventListener("click",()=>{
+  showView("browse");
+  $("sidebar").classList.remove("open");
+  if(state.live.key) fetchLive(); else { readFilterUI(); }
+  const rb=document.querySelector(".result-bar");
+  window.scrollTo({top: rb? rb.getBoundingClientRect().top+window.scrollY-72 : 0, behavior:"smooth"});
+});
 $("liveBtn").addEventListener("click",fetchLive);
 
 function wireFilters(){
