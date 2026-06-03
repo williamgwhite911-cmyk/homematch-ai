@@ -739,6 +739,7 @@ function openDetail(l){
 
   $("detailOverlay").classList.add("open");
   renderPriceHistory(l);
+  enrichFromDetail(l);
   loadCrime(l);
   if(l.lat!=null&&l.lng!=null){ setTimeout(()=>initMap(l),60); loadNearby(l); loadSchools(l); loadLandmarks(l); loadCommute(l); loadFlood(l); }
   else {
@@ -1120,6 +1121,7 @@ function normalizeLive(r,mode){
   const price=r.list_price||r.price||r.list_price_min||(r.community&&r.community.price_max)||0;
   return {
     id:r.property_id||r.listing_id||r.permalink||("live-"+Math.floor(performance.now())+"-"+photos.length),
+    _live:true, propertyId:(r.property_id||r.listing_id||null),
     mode, type:mapType(d.type||r.prop_type),
     price,
     beds:d.beds||d.beds_min||r.beds||0,
@@ -1162,6 +1164,38 @@ function liveHistory(r){
   const seen={}; pts.forEach(p=>{seen[p.label]=p;});
   const out=Object.values(seen).sort((a,b)=>a.label.localeCompare(b.label));
   return out.length>=2?out:null;
+}
+// Pro plan: fetch full property detail on listing open → full photo gallery, real price history, real school ratings.
+async function enrichFromDetail(l){
+  if(!l||!l._live||!l.propertyId||l._enriched||!state.live.key) return;
+  l._enriched=true; // mark immediately so we don't double-fetch
+  try{
+    const host=state.live.host||"us-real-estate.p.rapidapi.com";
+    const r=await fetch(`https://${host}/v3/property-detail?property_id=${encodeURIComponent(l.propertyId)}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}});
+    if(!r.ok) return;
+    const j=await r.json();
+    const d=j.data||j; const h=(d&&(d.home||d.property_detail||d.property))||d;
+    if(!h||typeof h!=="object") return;
+    // Full photo gallery
+    const photos=[];
+    if(h.primary_photo&&h.primary_photo.href) photos.push(h.primary_photo.href);
+    if(Array.isArray(h.photos)) photos.push(...h.photos.map(p=>p&&p.href).filter(Boolean));
+    const full=[...new Set(photos)];
+    if(full.length>realPhotos(l).length){ l.photos=full; if(currentListing===l){ galleryIdx=0; buildGallery(l); } }
+    // Real price/sold history
+    const hist=h.property_history||h.price_history||h.history;
+    if(Array.isArray(hist)&&hist.length){
+      const pts=hist.map(e=>{ const price=Number(e.price||e.list_price||(e.listing&&e.listing.list_price)); const date=e.date||e.event_date||e.listing_date; if(!price||!date) return null; return {label:String(date).slice(0,4),price}; }).filter(Boolean);
+      const seen={}; pts.forEach(p=>{seen[p.label]=p;}); const arr=Object.values(seen).sort((a,b)=>a.label.localeCompare(b.label));
+      if(arr.length>=2){ l.priceHistory=arr; if(currentListing===l) renderPriceHistory(l); }
+    }
+    // Real GreatSchools ratings
+    const sc=(h.nearby_schools&&h.nearby_schools.schools)||h.schools||(h.local&&h.local.schools&&h.local.schools.schools);
+    if(Array.isArray(sc)&&sc.length){
+      l.schools=sc.map(s=>({name:s.name,level:(s.education_levels&&s.education_levels[0])||s.funding_type||s.level||"",rating:(s.rating!=null?s.rating:(s.greatschools_rating!=null?s.greatschools_rating:null)),distance:(s.distance_in_miles!=null?Number(s.distance_in_miles).toFixed(1):null)})).filter(s=>s.name);
+      if(currentListing===l) loadSchools(l);
+    }
+  }catch(e){ /* keep list-level data */ }
 }
 function liveSchools(r){
   const raw=r.nearbySchools||r.schools||(r.location&&r.location.schools)||(r.schools&&r.schools.schools);
