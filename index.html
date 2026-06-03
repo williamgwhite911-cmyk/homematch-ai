@@ -487,7 +487,7 @@ const state = {
   crime:{ key:localStorage.getItem("hm_crime_key")||"DEMO_KEY" },
 };
 const STATES=["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
-const crimeCache={};
+const crimeCache={}, agencyCache={};
 let LIVE = [];
 
 /* ============================ Helpers ============================ */
@@ -602,6 +602,12 @@ function openDetail(l){
     </div>
     <div class="chips" style="margin-bottom:14px">${AMEN.filter(a=>l.amen[a.key]).map(a=>`<span class="chip">${a.icon} ${amenLabel(a,l)}</span>`).join("")||'<span class="sub-addr">No listed amenities</span>'}</div>
     <div class="desc">${l.desc}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      <button class="nav-btn" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.45);color:#fca5a5;font-weight:700" onclick="document.getElementById('safetyBox').scrollIntoView({behavior:'smooth',block:'center'})">🛡️ Crime report</button>
+      <button class="nav-btn" onclick="document.getElementById('floodBox').scrollIntoView({behavior:'smooth',block:'center'})">🌊 Flood zone</button>
+      ${l.mode==="buy"?`<button class="nav-btn" onclick="document.getElementById('mortgageOut').scrollIntoView({behavior:'smooth',block:'center'})">💰 Mortgage</button>`:""}
+      <button class="nav-btn" onclick="document.getElementById('schoolsBox').scrollIntoView({behavior:'smooth',block:'center'})">🏫 Schools</button>
+    </div>
 
     ${l.agent?`<div class="section" style="border-top:none;padding-top:14px;margin-top:14px">
       <div class="intel-card" style="display:flex;align-items:center;gap:14px">
@@ -1144,31 +1150,38 @@ async function fetchLive(){
 const US_VIOLENT=380, US_PROPERTY=1950;
 // FBI CDE "summarized" endpoint returns offenses.rates["<State> Offenses"] keyed by MM-YYYY,
 // where the year-end (December) value is the annual rate per 100k. We take the latest year's figure.
+// Parse a FBI "summarized" response: monthly rates per 100k for the place + US national, plus monthly counts.
+function parseSummarizedRates(data){
+  const off=data&&data.offenses; const rates=off&&off.rates; if(!rates) return null;
+  const placeKey=Object.keys(rates).find(x=>/offenses/i.test(x)&&!/united states/i.test(x))||Object.keys(rates).find(x=>/offenses/i.test(x)); if(!placeKey) return null;
+  const usKey=Object.keys(rates).find(x=>/offenses/i.test(x)&&/united states/i.test(x));
+  const monthlyRates=rates[placeKey]||{};
+  const actuals=off.actuals||{}; const actKey=Object.keys(actuals).find(x=>/offenses/i.test(x)&&!/united states/i.test(x));
+  const monthlyCounts=(actKey&&actuals[actKey])||{};
+  const months={};
+  for(const [mY,v] of Object.entries(monthlyRates)){ const [mm,yyyy]=mY.split("-"); const yr=Number(yyyy); if(isNaN(yr))continue; (months[yr]=months[yr]||{})[mm]=Number(v); }
+  const years=Object.keys(months).map(Number).sort((a,b)=>a-b); if(!years.length) return null;
+  const stats=years.map(yr=>{ const vals=Object.values(months[yr]).map(Number).filter(x=>!isNaN(x)); const sum=vals.reduce((a,b)=>a+b,0); const max=Math.max(0,...vals); return {yr,n:vals.length,sum,share:sum>0?max/sum:1}; });
+  const pick = stats.filter(s=>s.n>=12&&s.share<0.35).sort((a,b)=>a.yr-b.yr).pop() || stats.filter(s=>s.n>=12).sort((a,b)=>a.yr-b.yr).pop() || stats.sort((a,b)=>a.yr-b.yr).pop();
+  const chosen=pick.yr;
+  let usRate=null; if(usKey){ let s=0,n=0; for(const [mY,v] of Object.entries(rates[usKey])){ const yr=Number(mY.split("-")[1]); const val=Number(v); if(yr===chosen&&!isNaN(val)){ s+=val; n++; } } if(n) usRate=Math.round(s); }
+  const series=[]; for(let m=1;m<=12;m++){ const mm=String(m).padStart(2,"0"); const k2=`${mm}-${chosen}`; series.push({ m, rate:monthlyRates[k2]!=null?Number(monthlyRates[k2]):null, count:monthlyCounts[k2]!=null?Number(monthlyCounts[k2]):null }); }
+  return { rate:Math.round(pick.sum), usRate, year:chosen, series, clean:(pick.n>=12&&pick.share<0.35) };
+}
 async function fetchOffenseRate(st,offense,key){
-  // FBI returns MONTHLY rates per 100k + monthly actual counts. Annual rate = sum of the 12 monthly rates.
   const u=`https://api.usa.gov/crime/fbi/cde/summarized/state/${st}/${offense}?from=01-2019&to=12-2023&API_KEY=${encodeURIComponent(key)}`;
   const c=new AbortController(), t=setTimeout(()=>c.abort(),9000);
   const r=await fetch(u,{signal:c.signal}); clearTimeout(t);
   if(!r.ok) throw new Error("HTTP "+r.status);
-  const data=await r.json();
-  const off=data&&data.offenses; const rates=off&&off.rates; if(!rates) return null;
-  const stateKey=Object.keys(rates).find(x=>/offenses/i.test(x)&&!/united states/i.test(x))||Object.keys(rates).find(x=>/offenses/i.test(x)); if(!stateKey) return null;
-  const monthlyRates=rates[stateKey]||{};
-  const actuals=off.actuals||{};
-  const actKey=Object.keys(actuals).find(x=>/offenses/i.test(x)&&!/united states/i.test(x));
-  const monthlyCounts=(actKey&&actuals[actKey])||{};
-  const months={}; // year -> {mm: rate}
-  for(const [mY,v] of Object.entries(monthlyRates)){ const [mm,yyyy]=mY.split("-"); const yr=Number(yyyy); if(isNaN(yr))continue; (months[yr]=months[yr]||{})[mm]=Number(v); }
-  const years=Object.keys(months).map(Number).sort((a,b)=>a-b);
-  if(!years.length) return null;
-  // Score each year: complete (12 mo) + well-distributed (no month dominates). Some years dump the annual total into December.
-  const stats=years.map(yr=>{ const vals=Object.values(months[yr]).map(Number).filter(x=>!isNaN(x)); const sum=vals.reduce((a,b)=>a+b,0); const max=Math.max(0,...vals); return {yr,n:vals.length,sum,share:sum>0?max/sum:1}; });
-  const pick = stats.filter(s=>s.n>=12&&s.share<0.35).sort((a,b)=>a.yr-b.yr).pop()
-            || stats.filter(s=>s.n>=12).sort((a,b)=>a.yr-b.yr).pop()
-            || stats.sort((a,b)=>a.yr-b.yr).pop();
-  const chosen=pick.yr;
-  const series=[]; for(let m=1;m<=12;m++){ const mm=String(m).padStart(2,"0"); const k2=`${mm}-${chosen}`; series.push({ m, rate:monthlyRates[k2]!=null?Number(monthlyRates[k2]):null, count:monthlyCounts[k2]!=null?Number(monthlyCounts[k2]):null }); }
-  return { rate:Math.round(pick.sum), year:chosen, series, clean:(pick.n>=12&&pick.share<0.35) };
+  return parseSummarizedRates(await r.json());
+}
+async function fetchAgencyRate(ori,offense,key){
+  const u=`https://api.usa.gov/crime/fbi/cde/summarized/agency/${ori}/${offense}?from=01-2019&to=12-2023&API_KEY=${encodeURIComponent(key)}`;
+  const c=new AbortController(), t=setTimeout(()=>c.abort(),9000);
+  const r=await fetch(u,{signal:c.signal}); clearTimeout(t);
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  const p=parseSummarizedRates(await r.json());
+  return p?p.rate:null;
 }
 function crimeBadge(rate,ref){
   if(rate==null) return {label:"n/a",color:"#475569",pct:0};
@@ -1193,25 +1206,36 @@ function monthlyChart(rec){
     <div class="intel-row"><span style="font-size:12px">📅 ${rec.monthsLabel} by month (${yr})</span></div>
     <div style="display:flex;align-items:flex-end;gap:2px;height:62px;margin-top:6px">${bars}</div>`;
 }
-function crimeTypeRow(icon,label,rate){
-  return `<div class="intel-row"><span style="font-size:13px">${icon} ${label}</span><span class="v">${rate!=null?rate:'<span class="muted">—</span>'}${rate!=null?'<span class="v muted" style="font-weight:400">/100k</span>':''}</span></div>`;
+function rateCell(rate,ref){
+  if(rate==null) return '<span class="v muted">—</span>';
+  const color = ref!=null ? (rate<ref*0.85?"#34d399":rate>ref*1.15?"#f87171":"#fbbf24") : "var(--text)";
+  return `<span style="color:${color};font-weight:700">${rate}</span>`;
 }
 function renderCrime(box,rec,l){
-  if(rec){
-    const v=crimeBadge(rec.violentRate,US_VIOLENT), p=crimeBadge(rec.propertyRate,US_PROPERTY);
-    box.innerHTML=`
-      <div class="intel-row"><span>🚨 Violent crime</span><span class="v">${rec.violentRate??"—"}<span class="v muted" style="font-weight:400">/100k</span></span></div>
-      <div class="crime-bar"><div style="width:${v.pct}%;background:${v.color}"></div></div>
-      <div class="intel-row" style="margin-top:4px"><span>🏠 Property crime</span><span class="v">${rec.propertyRate??"—"}<span class="v muted" style="font-weight:400">/100k</span></span></div>
-      <div class="crime-bar"><div style="width:${p.pct}%;background:${p.color}"></div></div>
-      <div class="intel-row" style="margin-top:6px"><span class="v" style="color:${v.color}">${v.label}</span></div>
-      <div style="border-top:1px solid var(--border);margin:8px 0 4px;padding-top:6px"></div>
-      ${crimeTypeRow("🔨","Burglary",rec.burglaryRate)}
-      ${crimeTypeRow("💰","Robbery",rec.robberyRate)}
-      ${crimeTypeRow("⚠️","Rape",rec.rapeRate)}
-      ${monthlyChart(rec)}
-      <div class="intel-row"><span class="v muted" style="font-size:11px">${stateOf(l)} state-level · FBI UCR ${rec.year||""} · rate per 100k</span></div>`;
-  } else box.innerHTML=crimeFallback(l,"No FBI record returned.");
+  if(!rec){ box.innerHTML=crimeFallback(l,"No FBI record returned."); return; }
+  const rows=[
+    {icon:"🚨",label:"Violent",s:rec.violentRate,u:rec.violentUs,area:"violent"},
+    {icon:"🏠",label:"Property",s:rec.propertyRate,u:rec.propertyUs,area:"property"},
+    {icon:"🔨",label:"Burglary",s:rec.burglaryRate,u:rec.burglaryUs},
+    {icon:"💰",label:"Robbery",s:rec.robberyRate,u:rec.robberyUs},
+    {icon:"⚠️",label:"Rape",s:rec.rapeRate,u:rec.rapeUs},
+  ];
+  const th='style="text-align:right;font-weight:600;padding-bottom:5px"';
+  const tr=r=>`<tr style="border-top:1px solid var(--border)">
+    <td style="padding:6px 4px;font-size:13px">${r.icon} ${r.label}</td>
+    <td style="text-align:right">${r.area?`<span class="area-${r.area}"><span class="spinner" style="width:9px;height:9px"></span></span>`:'<span class="v muted">—</span>'}</td>
+    <td style="text-align:right">${rateCell(r.s,r.u)}</td>
+    <td style="text-align:right" class="v muted" style="font-weight:400">${r.u!=null?r.u:"—"}</td>
+  </tr>`;
+  box.innerHTML=`
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px">
+        <th style="text-align:left;font-weight:600;padding-bottom:5px">Offense</th><th ${th}>Area</th><th ${th}>State</th><th ${th}>Nat'l</th></tr>
+      ${rows.map(tr).join("")}
+    </table>
+    <div class="intel-row" style="margin-top:5px"><span class="v muted" style="font-size:11px">Rate per 100k · State = ${stateOf(l)} · FBI UCR ${rec.year||""} · green = below US avg</span></div>
+    <div id="areaCrimeNote"></div>
+    ${monthlyChart(rec)}`;
 }
 function crimeFallback(l,why){
   const c=l.crime;
@@ -1241,10 +1265,44 @@ async function loadCrime(l){
   }
   const rec={ violentRate:v?v.rate:null, propertyRate:p?p.rate:null,
     burglaryRate:bg?bg.rate:null, robberyRate:rb?rb.rate:null, rapeRate:rp?rp.rate:null,
+    violentUs:v?v.usRate:null, propertyUs:p?p.usRate:null, burglaryUs:bg?bg.usRate:null, robberyUs:rb?rb.usRate:null, rapeUs:rp?rp.usRate:null,
     months:(v&&v.clean&&v.series)||(p&&p.clean&&p.series)||null, monthsLabel:(v&&v.clean)?"Violent crime":"Property crime", monthsYear:(v&&v.clean)?v.year:(p&&p.year),
     year:(v&&v.year)||(p&&p.year)||(bg&&bg.year) };
   crimeCache[st]=rec;
   renderCrime(box,rec,l);
+  loadAreaCrime(l);
+}
+async function loadAreaCrime(l){
+  const note=()=>$("areaCrimeNote");
+  const setCell=(k,html)=>{ const el=document.querySelector(".area-"+k); if(el&&currentListing===l) el.innerHTML=html; };
+  if(l.lat==null||l.lng==null){ setCell("violent",'<span class="v muted">—</span>'); setCell("property",'<span class="v muted">—</span>'); return; }
+  const st=stateOf(l), key=state.crime.key||"DEMO_KEY";
+  try{
+    let agencies=agencyCache[st];
+    if(!agencies){
+      const r=await fetch(`https://api.usa.gov/crime/fbi/cde/agency/byStateAbbr/${st}?API_KEY=${encodeURIComponent(key)}`);
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      agencies=await r.json(); agencyCache[st]=agencies;
+    }
+    const list=Array.isArray(agencies)?agencies:(agencies.results||agencies.data||[]);
+    let best=null,bd=1e9;
+    for(const a of list){ const la=Number(a.latitude!=null?a.latitude:a.lat), lo=Number(a.longitude!=null?a.longitude:a.lng); if(isNaN(la)||isNaN(lo))continue; const d=haversine(l.lat,l.lng,la,lo); if(d<bd){bd=d;best=a;} }
+    if(!best) throw new Error("no agency with coords");
+    const ori=best.ori||best.ORI||best.agency_ori;
+    const areaName=best.agency_name||best.name||"nearest agency";
+    const av=await fetchAgencyRate(ori,"violent-crime",key).catch(()=>null);
+    const ap=await fetchAgencyRate(ori,"property-crime",key).catch(()=>null);
+    if(currentListing!==l) return;
+    setCell("violent", av!=null?`<span style="font-weight:700">${av}</span>`:'<span class="v muted">—</span>');
+    setCell("property", ap!=null?`<span style="font-weight:700">${ap}</span>`:'<span class="v muted">—</span>');
+    if(note()) note().innerHTML=(av!=null||ap!=null)
+      ? `<div class="intel-row"><span class="v muted" style="font-size:11px">Area = ${areaName} · ~${bd.toFixed(1)} mi away</span></div>`
+      : `<div class="intel-row"><span class="v muted" style="font-size:11px">Nearest agency (${areaName}) hasn't reported these — showing state & national.</span></div>`;
+  }catch(e){
+    if(currentListing!==l) return;
+    setCell("violent",'<span class="v muted">—</span>'); setCell("property",'<span class="v muted">—</span>');
+    if(note()) note().innerHTML=`<div class="intel-row"><span class="v muted" style="font-size:11px">Area (local) data unavailable${/DEMO_KEY/.test(key)?" — add your free api.data.gov key in ⚙":""}.</span></div>`;
+  }
 }
 
 /* ============================ Mode / view ============================ */
