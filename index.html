@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HomeMatch AI — Rent &amp; Buy</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root {
+    --bg: #0f1419; --surface: #1a212b; --surface-2: #222c38; --border: #2c3947;
+    --text: #e7edf3; --muted: #93a1b1; --accent: #4f9cf9; --accent-2: #34d399;
+    --rent: #f59e0b; --buy: #34d399; --danger: #f87171; --warn: #fbbf24;
+    --radius: 14px; --shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); line-height: 1.45; -webkit-font-smoothing: antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select, textarea { font-family: inherit; }
+
+  /* Header */
+  header { position: sticky; top: 0; z-index: 600; background: rgba(15,20,25,.9);
+    backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 20px; }
+  .header-inner { max-width: 1400px; margin: 0 auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; letter-spacing: -.5px; }
+  .brand .logo { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 18px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  .brand .ai-tag { font-size: 11px; background: var(--accent); color: #06223f; padding: 2px 7px; border-radius: 999px; font-weight: 800; }
+  .mode-toggle { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px; }
+  .mode-toggle button { border: none; background: transparent; color: var(--muted); padding: 7px 18px; border-radius: 999px; font-weight: 700; font-size: 14px; transition: .15s; }
+  .mode-toggle button.active.rent { background: var(--rent); color: #3a2700; }
+  .mode-toggle button.active.buy { background: var(--buy); color: #053826; }
+  .header-spacer { flex: 1; }
+  .nav-btn { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: 10px; font-weight: 600; font-size: 14px; transition: .15s; }
+  .nav-btn:hover { border-color: var(--accent); }
+  .nav-btn.primary { background: var(--accent); color: #06223f; border-color: var(--accent); }
+
+  /* Layout */
+  .app { max-width: 1400px; margin: 0 auto; display: flex; gap: 22px; padding: 20px; align-items: flex-start; }
+  .sidebar { width: 290px; flex-shrink: 0; position: sticky; top: 78px; max-height: calc(100vh - 96px); overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .content { flex: 1; min-width: 0; }
+
+  .demo-banner { background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.35); color: var(--warn);
+    border-radius: 10px; padding: 9px 13px; font-size: 13px; margin-bottom: 16px; }
+  .demo-banner b { color: #fde68a; }
+
+  /* Filter groups */
+  .fgroup { border-bottom: 1px solid var(--border); padding: 12px 0; }
+  .fgroup:first-child { padding-top: 0; }
+  .fgroup:last-child { border-bottom: none; }
+  .fgroup h4 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+  .fgroup label.chk { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 4px 0; cursor: pointer; }
+  .fgroup label.chk input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .frow { display: flex; gap: 8px; }
+  .frow input, .sidebar select, .sidebar input[type=text], .sidebar input[type=number] {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 9px 10px; border-radius: 9px; font-size: 14px; }
+  .sidebar input:focus, .sidebar select:focus { outline: none; border-color: var(--accent); }
+  .seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+  .seg button { background: var(--bg); border: 1px solid var(--border); color: var(--muted); padding: 7px 0; border-radius: 8px; font-size: 13px; font-weight: 600; }
+  .seg button.active { background: var(--accent); color: #06223f; border-color: var(--accent); }
+  .clear-all { width: 100%; margin-top: 12px; background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 10px; border-radius: 9px; font-size: 13px; }
+
+  /* AI search */
+  .ai-search { background: linear-gradient(135deg, rgba(79,156,249,.12), rgba(52,211,153,.08));
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .ai-search h2 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .ai-search p.hint { margin: 0 0 11px; color: var(--muted); font-size: 13px; }
+  .ai-search-row { display: flex; gap: 10px; }
+  .ai-search-row input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 12px 14px; border-radius: 10px; font-size: 15px; }
+  .ai-search-row input:focus { outline: none; border-color: var(--accent); }
+  .ai-search-row button { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #06223f; border: none; padding: 0 22px; border-radius: 10px; font-weight: 800; font-size: 15px; white-space: nowrap; }
+  .ai-search-row button:disabled { opacity: .6; cursor: progress; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+  .chip { background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); padding: 5px 11px; border-radius: 999px; font-size: 12px; cursor: pointer; }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+  .ai-interpreted { margin-top: 11px; font-size: 13px; color: var(--accent-2); display: none; }
+
+  .result-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .result-bar .count { color: var(--muted); font-size: 14px; }
+  .result-bar select { margin-left: auto; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 9px 11px; border-radius: 10px; font-size: 14px; }
+  .filters-toggle { display: none; }
+
+  /* Grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: .18s; display: flex; flex-direction: column; }
+  .card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: var(--shadow); }
+  .card-img { height: 190px; position: relative; background-size: cover; background-position: center; display: grid; place-items: center; font-size: 46px; }
+  .card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card-badge { position: absolute; top: 10px; left: 10px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; z-index: 2; }
+  .card-badge.rent { background: var(--rent); color: #3a2700; }
+  .card-badge.buy { background: var(--buy); color: #053826; }
+  .gated-tag { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; padding: 3px 9px; border-radius: 999px; z-index: 2; }
+  .fav-btn { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; border-radius: 50%; background: rgba(0,0,0,.45); border: none; color: #fff; font-size: 16px; display: grid; place-items: center; z-index: 2; }
+  .fav-btn.active { color: var(--danger); }
+  .card-body { padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .price { font-size: 21px; font-weight: 800; }
+  .price small { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .addr { font-size: 14px; }
+  .sub-addr { font-size: 13px; color: var(--muted); }
+  .amen-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+  .amen-pill { font-size: 11px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); padding: 2px 8px; border-radius: 999px; }
+  .specs { display: flex; gap: 14px; margin-top: auto; padding-top: 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--border); }
+  .specs b { color: var(--text); }
+  .safety-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+
+  /* Modal */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 700; display: none; align-items: flex-start; justify-content: center; padding: 24px 14px; overflow-y: auto; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-width: 820px; box-shadow: var(--shadow); overflow: hidden; }
+
+  /* Gallery */
+  .gallery { position: relative; height: 320px; background: #000; }
+  .gallery img { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .gallery img.active { display: block; }
+  .gallery .fallback { width: 100%; height: 100%; display: grid; place-items: center; font-size: 80px; }
+  .gnav { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,.5); border: none; color: #fff; font-size: 20px; }
+  .gnav.prev { left: 12px; } .gnav.next { right: 12px; }
+  .gdots { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+  .gdots span { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.4); }
+  .gdots span.active { background: #fff; }
+  .modal-close { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,.55); border: none; color: #fff; font-size: 20px; z-index: 5; }
+  .modal-body { padding: 22px; }
+  .modal-body h2 { margin: 0 0 4px; }
+  .modal-specs { display: flex; gap: 22px; margin: 16px 0; flex-wrap: wrap; }
+  .modal-spec { font-size: 14px; color: var(--muted); }
+  .modal-spec b { display: block; color: var(--text); font-size: 18px; }
+  .desc { color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .section { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 18px; }
+  .section h3 { font-size: 15px; display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+
+  /* Location intelligence */
+  #miniMap { height: 240px; border-radius: 10px; border: 1px solid var(--border); overflow: hidden; z-index: 1; }
+  .intel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  .intel-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .intel-card h5 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .intel-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
+  .intel-row .v { color: var(--text); font-weight: 600; }
+  .intel-row .v.muted { color: var(--muted); font-weight: 400; }
+  .crime-bar { height: 8px; border-radius: 6px; background: var(--surface-2); overflow: hidden; margin: 6px 0; }
+  .crime-bar > div { height: 100%; }
+  .commute-empty { font-size: 13px; color: var(--muted); }
+  .commute-empty a { color: var(--accent); cursor: pointer; }
+
+  /* Advisor */
+  .advisor-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .advisor-actions button { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 9px; font-size: 13px; font-weight: 600; }
+  .advisor-actions button:hover { border-color: var(--accent); }
+  .advisor-output { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px; font-size: 14px; min-height: 44px; white-space: pre-wrap; line-height: 1.6; }
+  .advisor-output .muted { color: var(--muted); }
+  .advisor-chat { display: flex; gap: 8px; margin-top: 10px; }
+  .advisor-chat input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 11px; border-radius: 9px; }
+  .advisor-chat button { background: var(--accent); color: #06223f; border: none; padding: 0 18px; border-radius: 9px; font-weight: 700; }
+
+  /* Forms / settings */
+  .form-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 760px; margin: 0 auto; }
+  .form-card h2 { margin: 0 0 6px; }
+  .form-card > p { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field.full { grid-column: 1 / -1; }
+  .field label { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .field input, .field select, .field textarea { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 11px; border-radius: 9px; font-size: 14px; }
+  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  .field textarea { resize: vertical; min-height: 90px; }
+  .amen-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .amen-checks label { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+  .gen-btn { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #06223f; border: none; padding: 9px 14px; border-radius: 9px; font-weight: 700; font-size: 13px; align-self: flex-start; }
+  .submit-row { display: flex; gap: 12px; margin-top: 22px; }
+  .submit-row button { flex: 1; padding: 13px; border-radius: 10px; font-weight: 800; font-size: 15px; border: none; }
+  .submit-row .save { background: var(--accent-2); color: #053826; }
+  .submit-row .cancel { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+
+  .settings-body { padding: 22px; }
+  .settings-body h2 { margin: 0 0 16px; }
+  .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 10px; border-radius: 999px; }
+  .status-pill.on { background: rgba(52,211,153,.15); color: var(--accent-2); }
+  .status-pill.off { background: rgba(147,161,177,.12); color: var(--muted); }
+  .settings-body small { color: var(--muted); font-size: 12px; display: block; margin-top: 6px; line-height: 1.5; }
+  .place-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+  .place-item { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 14px; }
+  .place-item .del { margin-left: auto; background: transparent; border: none; color: var(--danger); font-size: 16px; }
+
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 12px 20px; border-radius: 10px; box-shadow: var(--shadow); z-index: 900; opacity: 0; transition: .25s; pointer-events: none; font-size: 14px; }
+  .toast.show { opacity: 1; bottom: 30px; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 900px) {
+    .app { flex-direction: column; }
+    .sidebar { position: static; width: 100%; max-height: none; display: none; }
+    .sidebar.open { display: block; }
+    .filters-toggle { display: inline-block; }
+    .form-grid, .intel-grid, .amen-checks { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="brand"><span class="logo">🏠</span>HomeMatch <span class="ai-tag">AI</span></div>
+    <div class="mode-toggle" id="modeToggle">
+      <button data-mode="rent" class="active rent">Rent</button>
+      <button data-mode="buy">Buy</button>
+    </div>
+    <div class="header-spacer"></div>
+    <button class="nav-btn" id="placesNavBtn">📍 My places</button>
+    <button class="nav-btn" id="favNavBtn">♥ Saved (<span id="favCount">0</span>)</button>
+    <button class="nav-btn primary" id="listNavBtn">+ List</button>
+    <button class="nav-btn" id="settingsBtn">⚙</button>
+  </div>
+</header>
+
+<main id="browseView">
+<div class="app">
+  <!-- Sidebar filters -->
+  <aside class="sidebar" id="sidebar">
+    <div class="fgroup">
+      <h4>Area</h4>
+      <input type="text" id="fLoc" placeholder="City (e.g. Key West)">
+      <select id="fState" style="margin-top:8px"></select>
+    </div>
+    <div class="fgroup">
+      <h4>Price range</h4>
+      <div class="frow">
+        <input type="number" id="fMin" placeholder="Min">
+        <input type="number" id="fMax" placeholder="Max">
+      </div>
+    </div>
+    <div class="fgroup">
+      <h4>Property type</h4>
+      <div id="typeChecks">
+        <label class="chk"><input type="checkbox" value="House">House</label>
+        <label class="chk"><input type="checkbox" value="Condo">Condo</label>
+        <label class="chk"><input type="checkbox" value="Townhome">Townhome</label>
+        <label class="chk"><input type="checkbox" value="Apartment">Apartment</label>
+      </div>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="fGated">Gated community only</label>
+    </div>
+    <div class="fgroup">
+      <h4>Bedrooms</h4>
+      <div class="seg" id="bedSeg">
+        <button data-v="" class="active">Any</button>
+        <button data-v="1">1+</button><button data-v="2">2+</button>
+        <button data-v="3">3+</button><button data-v="4">4+</button>
+      </div>
+    </div>
+    <div class="fgroup">
+      <h4>Bathrooms</h4>
+      <div class="seg" id="bathSeg">
+        <button data-v="" class="active">Any</button>
+        <button data-v="1">1+</button><button data-v="2">2+</button>
+        <button data-v="3">3+</button><button data-v="4">4+</button>
+      </div>
+    </div>
+    <div class="fgroup">
+      <h4>Square feet</h4>
+      <div class="frow">
+        <input type="number" id="fSqftMin" placeholder="Min">
+        <input type="number" id="fSqftMax" placeholder="Max">
+      </div>
+    </div>
+    <div class="fgroup">
+      <h4>Amenities &amp; views</h4>
+      <div id="amenChecks"></div>
+    </div>
+    <button class="clear-all" id="clearBtn">Clear all filters</button>
+  </aside>
+
+  <!-- Results -->
+  <div class="content">
+    <div class="demo-banner">
+      <b>Demo listings.</b> Filters, map, drive-times &amp; nearby places are live. Connect a listings provider (⚙) to load real-time properties <b>with their actual photos</b>.
+    </div>
+
+    <div class="ai-search">
+      <h2>✨ AI Search</h2>
+      <p class="hint">Describe what you want in plain English — AI sets the filters for you.</p>
+      <div class="ai-search-row">
+        <input id="aiQuery" placeholder="e.g. gated 3 bed townhome under $700k near Key West with a pool and sea view">
+        <button id="aiSearchBtn">Search</button>
+      </div>
+      <div class="chips" id="exampleChips">
+        <span class="chip">Gated condo with pool and gym under $500k</span>
+        <span class="chip">3 bed townhome with garage near Miami</span>
+        <span class="chip">Waterfront home with sea view</span>
+        <span class="chip">Golf course view, low crime area</span>
+      </div>
+      <div class="ai-interpreted" id="aiInterpreted"></div>
+    </div>
+
+    <div class="result-bar">
+      <button class="nav-btn filters-toggle" id="filtersToggle">⚙ Filters</button>
+      <button class="nav-btn" id="liveBtn">⚡ Live listings</button>
+      <span class="count" id="resultCount"></span>
+      <select id="fSort">
+        <option value="relevance">Sort: Featured</option>
+        <option value="price-asc">Price: Low to High</option>
+        <option value="price-desc">Price: High to Low</option>
+        <option value="beds-desc">Most bedrooms</option>
+        <option value="safety">Safest area</option>
+      </select>
+    </div>
+
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="emptyState" style="display:none">No properties match your filters. Try clearing some.</div>
+  </div>
+</div>
+</main>
+
+<!-- List property -->
+<main id="listView" style="display:none">
+  <div class="app"><div class="form-card">
+    <h2>List your property</h2>
+    <p>Fill in the details — AI can write a polished description for you.</p>
+    <div class="form-grid">
+      <div class="field"><label>Listing type</label><select id="lpMode"><option value="rent">For rent</option><option value="buy">For sale</option></select></div>
+      <div class="field"><label>Property type</label><select id="lpType"><option>House</option><option>Condo</option><option>Townhome</option><option>Apartment</option></select></div>
+      <div class="field"><label>Price (USD)</label><input id="lpPrice" type="number" placeholder="2400"></div>
+      <div class="field"><label>City / area</label><input id="lpLoc" type="text" placeholder="Key West, FL"></div>
+      <div class="field"><label>Bedrooms</label><input id="lpBeds" type="number" placeholder="2"></div>
+      <div class="field"><label>Bathrooms</label><input id="lpBaths" type="number" step="0.5" placeholder="1.5"></div>
+      <div class="field"><label>Square feet</label><input id="lpSqft" type="number" placeholder="1100"></div>
+      <div class="field"><label>Street address</label><input id="lpAddr" type="text" placeholder="123 Ocean Dr"></div>
+      <div class="field full"><label>Amenities &amp; views</label><div class="amen-checks" id="lpAmen"></div>
+        <label class="chk" style="margin-top:6px"><input type="checkbox" id="lpGated"> Gated community</label></div>
+      <div class="field full"><label>Description</label>
+        <textarea id="lpDesc" placeholder="Describe the property, or let AI write it from the details above."></textarea>
+        <button class="gen-btn" id="genDescBtn">✨ Generate with AI</button></div>
+    </div>
+    <div class="submit-row"><button class="cancel" id="lpCancel">Cancel</button><button class="save" id="lpSave">Publish listing</button></div>
+  </div></div>
+</main>
+
+<!-- Detail modal -->
+<div class="overlay" id="detailOverlay"><div class="modal">
+  <div class="gallery" id="gallery"></div>
+  <div class="modal-body" id="detailBody"></div>
+</div></div>
+
+<!-- My places modal -->
+<div class="overlay" id="placesOverlay"><div class="modal" style="max-width:520px"><div class="settings-body">
+  <button class="modal-close" id="placesClose" style="position:static;float:right;background:var(--surface-2)">✕</button>
+  <h2>📍 My places</h2>
+  <p style="color:var(--muted);font-size:14px;margin-top:0">Add the places you commute to (work, school, gym). Each listing shows real drive time &amp; distance from them.</p>
+  <div class="place-list" id="placeList"></div>
+  <div class="frow"><input type="text" id="placeName" placeholder="Label (e.g. Work)" style="flex:0 0 110px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:9px">
+    <input type="text" id="placeAddr" placeholder="Address or place" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:9px"></div>
+  <button class="gen-btn" id="addPlaceBtn" style="margin-top:10px">+ Add place</button>
+</div></div></div>
+
+<!-- Settings modal -->
+<div class="overlay" id="settingsOverlay"><div class="modal" style="max-width:540px"><div class="settings-body">
+  <button class="modal-close" id="settingsClose" style="position:static;float:right;background:var(--surface-2)">✕</button>
+  <h2>⚙ AI &amp; Data Settings</h2>
+  <p style="color:var(--muted);font-size:14px;margin-top:0">Add an API key to power AI search, the advisor, and AI-written descriptions. Stored only in your browser.</p>
+  <div class="field"><label>AI Provider</label><select id="setProvider"><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option></select></div>
+  <div class="field" style="margin-top:12px"><label>API Key</label><input id="setKey" type="password" placeholder="sk-..."></div>
+  <div class="field" style="margin-top:12px"><label>Model</label><input id="setModel" type="text"></div>
+  <div style="margin:12px 0">Status: <span class="status-pill off" id="aiStatus">AI off — offline mode</span></div>
+  <small id="setHelp"></small>
+  <div class="submit-row" style="margin-top:18px"><button class="cancel" id="setClear">Remove key</button><button class="save" id="setSave">Save</button></div>
+  <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
+    <h2 style="font-size:16px;margin:0 0 6px">⚡ Live listings (Realtor via RapidAPI)</h2>
+    <small style="margin:0 0 12px">On <b style="color:var(--text)">rapidapi.com</b>, subscribe to the <b style="color:var(--text)">US Real Estate</b> API (host <code>us-real-estate.p.rapidapi.com</code>), then paste your RapidAPI key below. Calls go directly from your browser — personal use only. Then hit <b style="color:var(--text)">⚡ Live listings</b> on the results bar.</small>
+    <div class="field"><label>RapidAPI Key</label><input id="setRapidKey" type="password" placeholder="paste RapidAPI key"></div>
+    <div class="field" style="margin-top:10px"><label>RapidAPI Host</label><input id="setRapidHost" type="text" placeholder="us-real-estate.p.rapidapi.com"></div>
+  </div>
+  <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
+    <h2 style="font-size:16px;margin:0 0 6px">🛡️ Crime data (FBI · api.data.gov)</h2>
+    <small style="margin:0 0 12px">Real <b style="color:var(--text)">state-level</b> crime rates from the FBI Crime Data API, shown on each listing. Works now with the shared <code>DEMO_KEY</code> (low rate limit); for a free higher-limit key, sign up at <b style="color:var(--text)">api.data.gov</b>.</small>
+    <div class="field"><label>api.data.gov Key</label><input id="setCrimeKey" type="text" placeholder="DEMO_KEY"></div>
+  </div>
+</div></div></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+/* ============================ Config ============================ */
+const GRADIENTS = ["linear-gradient(135deg,#0ea5e9,#2563eb)","linear-gradient(135deg,#f59e0b,#ef4444)","linear-gradient(135deg,#10b981,#0d9488)","linear-gradient(135deg,#8b5cf6,#6366f1)","linear-gradient(135deg,#ec4899,#f43f5e)","linear-gradient(135deg,#14b8a6,#0ea5e9)"];
+const ICONS = { House:"🏡", Condo:"🏢", Apartment:"🏬", Townhome:"🏘️" };
+const AMEN = [
+  { key:"garage", label:"Garage", icon:"🚗" },
+  { key:"coveredParking", label:"Covered parking", icon:"🅿️" },
+  { key:"pool", label:"Pool", icon:"🏊" },
+  { key:"clubhouse", label:"Clubhouse", icon:"🏛️" },
+  { key:"gym", label:"Gym", icon:"🏋️" },
+  { key:"seaView", label:"Sea view", icon:"🌊" },
+  { key:"golfView", label:"Golf course view", icon:"⛳" },
+];
+const DEFAULT_MODELS = { anthropic:"claude-haiku-4-5", openai:"gpt-4o-mini" };
+const img = (id, w) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=${w}&q=70`;
+const EXT = ["1568605114967-8130f3a36994","1570129477492-45c003edd2be","1512917774080-9991f1c4c750","1564013799919-ab600027ffc6","1613490493576-7fde63acd811","1600596542815-ffad4c1539a9","1600585154340-be6161a56a0c","1605276374104-dee2a0ed3cd6","1605146769289-440113cc3d00"];
+const INT = ["1502672260266-1c1ef2d93688","1493809842364-78817add7ffb","1522708323590-d24dbb6b0267","1484154218962-a197022b5858","1505691938895-1758d7feb511","1600566753086-00f18fb6b3ea","1600607687939-ce8a6c25118c","1600210492486-724fe5c67fb0"];
+
+/* ============================ Data ============================ */
+function A(...keys){ const o={}; AMEN.forEach(a=>o[a.key]=false); keys.forEach(k=>o[k]=true); return o; }
+let LISTINGS = [
+  { id:1, mode:"rent", type:"Apartment", price:1750, beds:1, baths:1, sqft:680, city:"Key West, FL", neighborhood:"Old Town", addr:"412 Duval St #3", lat:24.5594, lng:-81.8005, gated:false, amen:A("coveredParking"), crime:38, photos:[EXT[2],INT[1],INT[3]], desc:"Bright one-bedroom steps from Duval Street with a fully renovated kitchen and covered parking. Walk to cafes, beaches, and nightlife." },
+  { id:2, mode:"rent", type:"Condo", price:2400, beds:2, baths:2, sqft:1100, city:"Key West, FL", neighborhood:"New Town", addr:"1800 Atlantic Blvd #210", lat:24.5530, lng:-81.7820, gated:true, amen:A("pool","seaView","gym","coveredParking"), crime:25, photos:[EXT[6],INT[2],INT[0]], desc:"Spacious waterfront condo in a gated community with a resort-style pool, fitness center, and assigned parking. Ocean views every morning." },
+  { id:3, mode:"rent", type:"House", price:3200, beds:3, baths:2, sqft:1650, city:"Marathon, FL", neighborhood:"Sombrero Beach", addr:"55 Sombrero Beach Rd", lat:24.7090, lng:-81.0870, gated:false, amen:A("pool","garage","seaView"), crime:30, photos:[EXT[0],INT[4],EXT[7]], desc:"Charming Keys home with a private pool and boat dock. Perfect for families or boating enthusiasts, with a two-car garage and tropical landscaping." },
+  { id:4, mode:"rent", type:"Apartment", price:1450, beds:1, baths:1, sqft:560, city:"Miami, FL", neighborhood:"Midtown", addr:"240 NE 27th St #5B", lat:25.8010, lng:-80.1910, gated:false, amen:A("gym","coveredParking"), crime:55, photos:[INT[5],INT[6],EXT[5]], desc:"Modern one-bedroom in the heart of Midtown Miami with building gym and covered parking. Steps from the Design District." },
+  { id:5, mode:"rent", type:"Townhome", price:2850, beds:3, baths:2.5, sqft:1500, city:"Fort Lauderdale, FL", neighborhood:"Las Olas", addr:"78 Las Olas Way", lat:26.1190, lng:-80.1290, gated:true, amen:A("garage","clubhouse","gym"), crime:42, photos:[EXT[3],INT[0],INT[7]], desc:"Move-in ready gated townhome near Las Olas with an attached garage, clubhouse, and community gym. A private patio rounds it out." },
+  { id:6, mode:"rent", type:"Condo", price:1950, beds:2, baths:1, sqft:900, city:"Marathon, FL", neighborhood:"Coco Plum", addr:"12 Coco Plum Dr #8", lat:24.7250, lng:-81.0300, gated:false, amen:A("pool","seaView"), crime:28, photos:[EXT[8],INT[2],INT[1]], desc:"Cozy two-bedroom condo overlooking the water with shared pool access and easy highway access for commuters." },
+  { id:7, mode:"buy", type:"House", price:685000, beds:3, baths:2, sqft:1750, city:"Key Largo, FL", neighborhood:"Ocean Reef", addr:"98 Ocean Reef Dr", lat:25.0865, lng:-80.4473, gated:true, amen:A("pool","garage","seaView","clubhouse"), crime:18, photos:[EXT[1],INT[3],EXT[0]], desc:"Stunning gated single-family home with a heated pool and deep-water canal access. A boater's dream with chef's kitchen." },
+  { id:8, mode:"buy", type:"Condo", price:459000, beds:2, baths:2, sqft:1150, city:"Key West, FL", neighborhood:"Truman Annex", addr:"300 Front St #404", lat:24.5570, lng:-81.8070, gated:true, amen:A("pool","seaView","gym","coveredParking"), crime:22, photos:[EXT[6],INT[0],INT[6]], desc:"Turnkey waterfront condo in a premier gated building with pool, gym, and secured parking. Excellent rental income potential." },
+  { id:9, mode:"buy", type:"House", price:925000, beds:4, baths:3, sqft:2400, city:"Islamorada, FL", neighborhood:"Sunset Cove", addr:"145 Sunset Cove", lat:24.9243, lng:-80.6276, gated:false, amen:A("pool","seaView","garage"), crime:20, photos:[EXT[7],INT[4],EXT[3]], desc:"Elegant four-bedroom estate with sweeping bay views, infinity pool, and a 60-ft dock. The ultimate Keys lifestyle home." },
+  { id:10, mode:"buy", type:"Townhome", price:389000, beds:3, baths:2.5, sqft:1600, city:"Fort Lauderdale, FL", neighborhood:"Victoria Park", addr:"22 Harbor Walk", lat:26.1320, lng:-80.1280, gated:true, amen:A("garage","gym","clubhouse"), crime:40, photos:[EXT[3],INT[7],INT[5]], desc:"Contemporary gated townhome with a two-car garage, community gym, clubhouse, and designer finishes throughout." },
+  { id:11, mode:"buy", type:"Condo", price:315000, beds:1, baths:1, sqft:720, city:"Miami, FL", neighborhood:"Brickell", addr:"1010 Brickell Ave #2201", lat:25.7600, lng:-80.1918, gated:true, amen:A("pool","gym","coveredParking","seaView"), crime:48, photos:[EXT[5],INT[6],INT[2]], desc:"High-floor Brickell residence with floor-to-ceiling windows, bay views, and full-service amenities including pool, gym, and valet." },
+  { id:12, mode:"buy", type:"House", price:549000, beds:3, baths:2, sqft:1500, city:"Marathon, FL", neighborhood:"Sombrero", addr:"67 Sombrero Rd", lat:24.7137, lng:-81.0905, gated:false, amen:A("garage","golfView"), crime:26, photos:[EXT[0],INT[3],EXT[8]], desc:"Updated island home overlooking the golf course, with a flexible floor plan, large fenced yard, and oversized garage." },
+];
+let nextId = 13;
+
+/* ============================ State ============================ */
+const state = {
+  mode:"rent", view:"browse",
+  filters:{ loc:"", stateCode:"FL", min:"", max:"", types:[], gated:false, beds:"", baths:"", sqftMin:"", sqftMax:"", amen:[], sort:"relevance" },
+  favorites:new Set(JSON.parse(localStorage.getItem("hm_favs")||"[]")),
+  places:JSON.parse(localStorage.getItem("hm_places")||"[]"),
+  showFavsOnly:false,
+  source:"demo",
+  ai:{ provider:localStorage.getItem("hm_ai_provider")||"anthropic", key:localStorage.getItem("hm_ai_key")||"", model:localStorage.getItem("hm_ai_model")||"" },
+  live:{ key:localStorage.getItem("hm_rapid_key")||"", host:localStorage.getItem("hm_rapid_host")||"us-real-estate.p.rapidapi.com" },
+  crime:{ key:localStorage.getItem("hm_crime_key")||"DEMO_KEY" },
+};
+const STATES=["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
+const crimeCache={};
+let LIVE = [];
+
+/* ============================ Helpers ============================ */
+const $ = (id)=>document.getElementById(id);
+const money = (n)=>"$"+Number(n).toLocaleString("en-US");
+const gradFor = (id)=>GRADIENTS[id%GRADIENTS.length];
+const aiReady = ()=>!!state.ai.key;
+// Only render photos that are real URLs from a listings provider — never stock/placeholder images.
+const realPhotos = (l)=>((l&&l.photos)||[]).filter(p=>typeof p==="string"&&/^https?:\/\//.test(p));
+const stateOf = (l)=>l.stateAbbr||((((l.city||"").split(",").pop()||"").toUpperCase().match(/\b[A-Z]{2}\b/)||["FL"])[0]);
+function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),2600); }
+function haversine(a,b,c,d){ const R=3958.8,t=x=>x*Math.PI/180,dLat=t(c-a),dLng=t(d-b); const h=Math.sin(dLat/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dLng/2)**2; return R*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h)); }
+function crimeColor(c){ return c<30?"#34d399":c<50?"#fbbf24":"#f87171"; }
+function crimeLabel(c){ return c<30?"Lower":c<50?"Moderate":"Higher"; }
+
+/* ============================ Filtering ============================ */
+function applyFilters(){
+  const f = state.filters;
+  let rows = LISTINGS.filter(l=>l.mode===state.mode);
+  if (state.showFavsOnly) rows = rows.filter(l=>state.favorites.has(l.id));
+  if (f.stateCode) rows = rows.filter(l=>stateOf(l)===f.stateCode);
+  if (f.loc){ const q=f.loc.toLowerCase(); rows=rows.filter(l=>(l.city+" "+l.neighborhood+" "+l.addr).toLowerCase().includes(q)); }
+  if (f.min) rows = rows.filter(l=>l.price>=Number(f.min));
+  if (f.max) rows = rows.filter(l=>l.price<=Number(f.max));
+  if (f.types.length) rows = rows.filter(l=>f.types.includes(l.type));
+  if (f.gated) rows = rows.filter(l=>l.gated);
+  if (f.beds) rows = rows.filter(l=>l.beds>=Number(f.beds));
+  if (f.baths) rows = rows.filter(l=>l.baths>=Number(f.baths));
+  if (f.sqftMin) rows = rows.filter(l=>l.sqft>=Number(f.sqftMin));
+  if (f.sqftMax) rows = rows.filter(l=>l.sqft<=Number(f.sqftMax));
+  if (f.amen.length) rows = rows.filter(l=>f.amen.every(k=>l.amen[k]));
+  if (f.sort==="price-asc") rows.sort((a,b)=>a.price-b.price);
+  else if (f.sort==="price-desc") rows.sort((a,b)=>b.price-a.price);
+  else if (f.sort==="beds-desc") rows.sort((a,b)=>b.beds-a.beds);
+  else if (f.sort==="safety") rows.sort((a,b)=>a.crime-b.crime);
+  return rows;
+}
+function render(){
+  const live = state.source==="live";
+  const rows = live ? LIVE : applyFilters();
+  const grid=$("grid");
+  grid.innerHTML="";
+  const banner=document.querySelector(".demo-banner"); if(banner) banner.style.display = live?"none":"block";
+  const lb=$("liveBtn"); if(lb) lb.classList.toggle("primary",live);
+  $("emptyState").style.display = rows.length?"none":"block";
+  $("resultCount").textContent = (live?"⚡ Live · ":"")+rows.length+(rows.length===1?" home":" homes");
+  rows.forEach(l=>grid.appendChild(card(l)));
+  $("favCount").textContent = state.favorites.size;
+}
+function amenPills(l){
+  return AMEN.filter(a=>l.amen[a.key]).slice(0,4).map(a=>`<span class="amen-pill">${a.icon} ${a.label}</span>`).join("");
+}
+function card(l){
+  const el=document.createElement("div"); el.className="card";
+  const fav=state.favorites.has(l.id);
+  el.innerHTML=`
+    <div class="card-img" style="background:${gradFor(l.id)}">
+      <span class="card-badge ${l.mode}">${l.mode==="rent"?"For Rent":"For Sale"}</span>
+      <button class="fav-btn ${fav?"active":""}" title="Save">${fav?"♥":"♡"}</button>
+      ${l.gated?'<span class="gated-tag">🔒 Gated</span>':""}
+      ${realPhotos(l).length?`<img src="${realPhotos(l)[0]}" alt="" class="card-photo">`:`<span>${ICONS[l.type]||'🏠'}</span>`}
+    </div>
+    <div class="card-body">
+      <div class="price">${money(l.price)}${l.mode==="rent"?"<small>/mo</small>":""}</div>
+      <div class="addr">${l.addr}</div>
+      <div class="sub-addr">${l.neighborhood} · ${l.city} · ${l.type}</div>
+      <div class="amen-row">${amenPills(l)}</div>
+      <div class="specs">
+        <span><b>${l.beds}</b> bd</span><span><b>${l.baths}</b> ba</span><span><b>${l.sqft.toLocaleString()}</b> sqft</span>
+        <span style="margin-left:auto">${l.crime==null?'<span class="safety-dot" style="background:#475569"></span>n/a':`<span class="safety-dot" style="background:${crimeColor(l.crime)}"></span>${crimeLabel(l.crime)}`}</span>
+      </div>
+    </div>`;
+  const im=el.querySelector(".card-photo");
+  if(im) im.addEventListener("error",()=>{ im.style.display="none"; const s=document.createElement("span"); s.textContent=ICONS[l.type]||"🏠"; im.parentNode.appendChild(s); });
+  el.querySelector(".fav-btn").addEventListener("click",e=>{ e.stopPropagation(); toggleFav(l.id); });
+  el.querySelector(".card-body").addEventListener("click",()=>openDetail(l));
+  el.querySelector(".card-img").addEventListener("click",e=>{ if(!e.target.classList.contains("fav-btn")) openDetail(l); });
+  return el;
+}
+function toggleFav(id){
+  state.favorites.has(id)?state.favorites.delete(id):state.favorites.add(id);
+  localStorage.setItem("hm_favs",JSON.stringify([...state.favorites]));
+  render();
+}
+
+/* ============================ Detail + gallery ============================ */
+let currentListing=null, galleryIdx=0, miniMap=null;
+function openDetail(l){
+  currentListing=l; galleryIdx=0;
+  buildGallery(l);
+  const ppsf=Math.round(l.price/l.sqft);
+  $("detailBody").innerHTML=`
+    <span class="card-badge ${l.mode}" style="position:static;display:inline-block;margin-bottom:8px">${l.mode==="rent"?"For Rent":"For Sale"}</span>
+    ${l.gated?'<span class="amen-pill" style="margin-left:6px">🔒 Gated community</span>':""}
+    <h2>${money(l.price)}${l.mode==="rent"?" <small style='font-size:15px;color:var(--muted)'>/mo</small>":""}</h2>
+    <div class="addr" style="font-size:16px">${l.addr}</div>
+    <div class="sub-addr">${l.neighborhood} · ${l.city} · ${l.type}</div>
+    <div class="modal-specs">
+      <div class="modal-spec"><b>${l.beds}</b> Bedrooms</div>
+      <div class="modal-spec"><b>${l.baths}</b> Bathrooms</div>
+      <div class="modal-spec"><b>${l.sqft.toLocaleString()}</b> Sq Ft</div>
+      <div class="modal-spec"><b>$${ppsf}</b>/sqft</div>
+    </div>
+    <div class="chips" style="margin-bottom:14px">${AMEN.filter(a=>l.amen[a.key]).map(a=>`<span class="chip">${a.icon} ${a.label}</span>`).join("")||'<span class="sub-addr">No listed amenities</span>'}</div>
+    <div class="desc">${l.desc}</div>
+
+    <div class="section"><h3>📍 Location intelligence</h3>
+      <div id="miniMap"></div>
+      <div class="intel-grid">
+        <div class="intel-card">
+          <h5>Safety — crime stats</h5>
+          <div id="safetyBox"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Loading crime data…</span></div></div>
+        </div>
+        <div class="intel-card">
+          <h5>What's nearby</h5>
+          <div id="nearby"><div class="intel-row"><span class="v muted"><span class="spinner"></span> Finding nearby places…</span></div></div>
+        </div>
+        <div class="intel-card" style="grid-column:1/-1">
+          <h5>Commute from your places</h5>
+          <div id="commute"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section"><h3>🤖 AI Property Advisor</h3>
+      <div class="advisor-actions">
+        <button data-act="price">💰 Priced fairly?</button>
+        <button data-act="pros">⚖️ Pros &amp; cons</button>
+        <button data-act="neighborhood">📍 About the area</button>
+      </div>
+      <div class="advisor-output" id="advisorOut"><span class="muted">Ask the advisor anything${aiReady()?"":" (offline mode — add an API key in ⚙ for richer answers)"}.</span></div>
+      <div class="advisor-chat"><input id="advisorInput" placeholder="e.g. Is this good for a family? What should I offer?"><button id="advisorSend">Ask</button></div>
+    </div>`;
+
+  $("detailBody").querySelectorAll(".advisor-actions button").forEach(b=>b.addEventListener("click",()=>advisorAsk(presetQuestion(b.dataset.act))));
+  $("advisorSend").addEventListener("click",()=>{ const v=$("advisorInput").value.trim(); if(v){ advisorAsk(v); $("advisorInput").value=""; } });
+  $("advisorInput").addEventListener("keydown",e=>{ if(e.key==="Enter") $("advisorSend").click(); });
+
+  $("detailOverlay").classList.add("open");
+  loadCrime(l);
+  if(l.lat!=null&&l.lng!=null){ setTimeout(()=>initMap(l),60); loadNearby(l); loadCommute(l); }
+  else {
+    $("miniMap").innerHTML='<div style="padding:20px;color:var(--muted);font-size:13px">No map coordinates for this listing.</div>';
+    const nb=$("nearby"); if(nb) nb.innerHTML='<div class="intel-row"><span class="v muted">Location data unavailable</span></div>';
+    const cm=$("commute"); if(cm) cm.innerHTML='<div class="commute-empty">Location data unavailable</div>';
+  }
+}
+function buildGallery(l){
+  const g=$("gallery"), rp=realPhotos(l);
+  const slides = rp.length
+    ? rp.map((p,i)=>`<img class="${i===0?'active':''}" src="${p}" alt="">`).join("")
+    : `<div class="fallback">${ICONS[l.type]||'🏠'}</div>`;
+  g.innerHTML=`<button class="modal-close" id="detailClose">✕</button>${slides}
+    ${rp.length>1?`<button class="gnav prev" id="gPrev">‹</button><button class="gnav next" id="gNext">›</button>
+    <div class="gdots">${rp.map((_,i)=>`<span class="${i===0?'active':''}"></span>`).join("")}</div>`:""}`;
+  $("detailClose").addEventListener("click",()=>$("detailOverlay").classList.remove("open"));
+  if(rp.length>1){ $("gPrev").addEventListener("click",()=>gallery(-1)); $("gNext").addEventListener("click",()=>gallery(1)); }
+}
+function gallery(d){
+  const imgs=$("gallery").querySelectorAll("img"), dots=$("gallery").querySelectorAll(".gdots span");
+  if(!imgs.length) return;
+  imgs[galleryIdx]?.classList.remove("active"); dots[galleryIdx]?.classList.remove("active");
+  galleryIdx=(galleryIdx+d+imgs.length)%imgs.length;
+  imgs[galleryIdx]?.classList.add("active"); dots[galleryIdx]?.classList.add("active");
+}
+function initMap(l){
+  if(miniMap){ miniMap.remove(); miniMap=null; }
+  const el=$("miniMap"); if(!el||typeof L==="undefined") return;
+  miniMap=L.map(el,{scrollWheelZoom:false}).setView([l.lat,l.lng],14);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(miniMap);
+  L.marker([l.lat,l.lng]).addTo(miniMap).bindPopup(l.addr).openPopup();
+  setTimeout(()=>miniMap.invalidateSize(),120);
+}
+
+/* ============================ Nearby (Overpass) ============================ */
+async function loadNearby(l){
+  const box=$("nearby"); if(!box) return;
+  const cats=[{k:"school",q:'node["amenity"="school"]',icon:"🏫",label:"School"},{k:"cafe",q:'node["amenity"="cafe"]',icon:"☕",label:"Café"},{k:"restaurant",q:'node["amenity"="restaurant"]',icon:"🍽️",label:"Restaurant"},{k:"gym",q:'node["leisure"="fitness_centre"]',icon:"🏋️",label:"Gym"}];
+  const r=2500;
+  const ql=`[out:json][timeout:18];(${cats.map(c=>`${c.q}(around:${r},${l.lat},${l.lng});`).join("")});out body;`;
+  try{
+    const res=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(ql)});
+    if(!res.ok) throw new Error("overpass");
+    const data=await res.json();
+    const nearest={};
+    data.elements.forEach(e=>{
+      const tags=e.tags||{}; let cat=null;
+      if(tags.amenity==="school")cat="school"; else if(tags.amenity==="cafe")cat="cafe"; else if(tags.amenity==="restaurant")cat="restaurant"; else if(tags.leisure==="fitness_centre")cat="gym";
+      if(!cat||e.lat==null)return;
+      const d=haversine(l.lat,l.lng,e.lat,e.lon);
+      if(!nearest[cat]||d<nearest[cat].d) nearest[cat]={d,name:tags.name||""};
+    });
+    if(currentListing!==l) return;
+    box.innerHTML=cats.map(c=>{
+      const n=nearest[c.k];
+      return `<div class="intel-row"><span>${c.icon} Nearest ${c.label.toLowerCase()}</span><span class="v">${n?n.d.toFixed(1)+" mi":'<span class="v muted">none ≤'+ (r/1609).toFixed(1) +'mi</span>'}</span></div>`;
+    }).join("");
+  }catch(e){
+    if(currentListing!==l) return;
+    box.innerHTML=`<div class="intel-row"><span class="v muted">Couldn't reach the places service. Try again shortly.</span></div>`;
+  }
+}
+
+/* ============================ Commute (OSRM) ============================ */
+async function loadCommute(l){
+  const box=$("commute"); if(!box) return;
+  if(!state.places.length){ box.innerHTML=`<div class="commute-empty">No saved places yet. <a id="addPlaceLink">Add a place</a> (work, school, gym) to see drive times.</div>`;
+    $("addPlaceLink")?.addEventListener("click",openPlaces); return; }
+  box.innerHTML=state.places.map(p=>`<div class="intel-row" data-pid="${p.id}"><span>📍 ${p.name}</span><span class="v muted"><span class="spinner"></span></span></div>`).join("");
+  for(const p of state.places){
+    try{
+      const url=`https://router.project-osrm.org/route/v1/driving/${l.lng},${l.lat};${p.lng},${p.lat}?overview=false`;
+      const res=await fetch(url); const data=await res.json();
+      if(currentListing!==l) return;
+      const row=box.querySelector(`[data-pid="${p.id}"] .v`);
+      if(data.routes&&data.routes[0]){ const mins=Math.round(data.routes[0].duration/60), mi=(data.routes[0].distance/1609).toFixed(1);
+        row.classList.remove("muted"); row.innerHTML=`${mins} min · ${mi} mi`; }
+      else row.innerHTML='<span class="muted">no route</span>';
+    }catch(e){ const row=box.querySelector(`[data-pid="${p.id}"] .v`); if(row) row.innerHTML='<span class="muted">—</span>'; }
+  }
+}
+
+/* ============================ AI advisor ============================ */
+function presetQuestion(a){ return a==="price"?"Is this property priced fairly for the market? Give a quick verdict.":a==="pros"?"What are the main pros and cons of this property?":"Tell me about the neighborhood and what it's like to live here."; }
+async function advisorAsk(q){
+  const out=$("advisorOut"), l=currentListing;
+  out.innerHTML=`<span class="muted"><span class="spinner"></span> Thinking…</span>`;
+  if(!aiReady()){ out.textContent=offlineAdvisor(q,l); return; }
+  try{
+    const sys="You are a concise, honest real-estate advisor. Answer in 2-4 short sentences. Be specific and practical. Never invent facts not implied by the data.";
+    const am=AMEN.filter(a=>l.amen[a.key]).map(a=>a.label).join(", ")||"none";
+    const ctx=`Property: ${l.mode==="rent"?"for rent at "+money(l.price)+"/mo":"for sale at "+money(l.price)}. ${l.type}${l.gated?" in a gated community":""}, ${l.beds}bd/${l.baths}ba, ${l.sqft} sqft ($${Math.round(l.price/l.sqft)}/sqft). Location: ${l.addr}, ${l.neighborhood}, ${l.city}. Amenities/views: ${am}. Area crime index: ${l.crime}/100 (lower is safer). Description: ${l.desc}`;
+    out.textContent=await callAI(sys,`${ctx}\n\nQuestion: ${q}`);
+  }catch(e){ out.innerHTML=`<span class="muted">AI error: ${e.message}. Offline answer:</span>\n\n`+offlineAdvisor(q,l); }
+}
+function offlineAdvisor(q,l){
+  const ppsf=Math.round(l.price/l.sqft), s=q.toLowerCase();
+  if(/pric|fair|offer|worth/.test(s)){
+    const peers=LISTINGS.filter(x=>x.mode===l.mode&&x.type===l.type&&x.id!==l.id);
+    const avg=peers.length?Math.round(peers.reduce((a,x)=>a+x.price/x.sqft,0)/peers.length):ppsf;
+    const v=ppsf<avg*.95?"below":ppsf>avg*1.05?"above":"in line with";
+    return `At $${ppsf}/sqft this is ${v} the average for comparable ${l.type.toLowerCase()}s in the sample ($${avg}/sqft). ${v==="below"?"Looks like good value.":v==="above"?"You may have room to negotiate.":"It's fairly priced."}`;
+  }
+  if(/pro|con|good|bad/.test(s)){
+    const am=AMEN.filter(a=>l.amen[a.key]).map(a=>a.label).slice(0,3).join(", ");
+    return `Pros: ${am||"solid fundamentals"}; ${l.beds} beds, ${l.sqft} sqft${l.gated?", gated community":""}. Area crime index is ${l.crime}/100 (${crimeLabel(l.crime).toLowerCase()}). Cons: check HOA, insurance, and flood-zone costs — common in the Keys. Add an API key in ⚙ for deeper analysis.`;
+  }
+  if(/neighbor|area|live|family|safe|crime/.test(s)){
+    return `${l.neighborhood}, ${l.city} has an area crime index of ${l.crime}/100 (${crimeLabel(l.crime).toLowerCase()} than average) and the South Florida / Keys lifestyle. ${l.beds>=3?"With "+l.beds+" bedrooms it suits families.":"Best for singles, couples, or as an investment."} See the map and nearby places above. Add an API key for detailed local insights.`;
+  }
+  return `This is a ${l.beds}-bed ${l.type.toLowerCase()} in ${l.neighborhood}, ${l.city} at ${money(l.price)}${l.mode==="rent"?"/mo":""} ($${ppsf}/sqft). Add an API key in ⚙ for AI answers to any question.`;
+}
+
+/* ============================ AI search ============================ */
+async function runAISearch(){
+  const q=$("aiQuery").value.trim(); if(!q) return;
+  const btn=$("aiSearchBtn"), interp=$("aiInterpreted");
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>';
+  let p; try{ p=aiReady()?await aiParseQuery(q):offlineParseQuery(q); }catch(e){ toast("AI parse failed — using offline parser"); p=offlineParseQuery(q); }
+  btn.disabled=false; btn.textContent="Search";
+  applyParsed(p);
+  const bits=[];
+  if(p.mode) bits.push(p.mode==="rent"?"Rent":"Buy");
+  if(p.beds) bits.push(p.beds+"+ bd"); if(p.baths) bits.push(p.baths+"+ ba");
+  if(p.types&&p.types.length) bits.push(p.types.join("/"));
+  if(p.gated) bits.push("gated");
+  if(p.max) bits.push("under "+money(p.max));
+  if(p.loc) bits.push("in "+p.loc);
+  if(p.amen&&p.amen.length) bits.push(p.amen.map(k=>(AMEN.find(a=>a.key===k)||{}).label||k).join(", "));
+  interp.style.display="block"; interp.textContent="✨ Interpreted as: "+(bits.join(" · ")||"all listings");
+}
+function applyParsed(p){
+  if(p.mode) setMode(p.mode,true);
+  const f=state.filters;
+  f.types=p.types||[]; f.gated=!!p.gated; f.beds=p.beds?String(p.beds):""; f.baths=p.baths?String(p.baths):"";
+  f.max=p.max||""; f.min=""; f.loc=p.loc||""; f.amen=p.amen||[]; f.sqftMin=""; f.sqftMax="";
+  syncFilterUI();
+  state.source="demo";
+  render();
+}
+async function aiParseQuery(q){
+  const sys=`Convert a natural-language real-estate search into JSON. Output ONLY a JSON object: mode("rent"|"buy"|null), types(array of any of "House","Condo","Townhome","Apartment"), gated(bool), beds(number|null), baths(number|null), max(number|null, max price), loc(string|null), amen(array of any of: garage, coveredParking, pool, clubhouse, gym, seaView, golfView). Use [] / null / false when unknown. No prose.`;
+  const txt=await callAI(sys,q); const m=txt.match(/\{[\s\S]*\}/); return JSON.parse(m?m[0]:txt);
+}
+function offlineParseQuery(q){
+  const s=q.toLowerCase(); const p={mode:null,types:[],gated:false,beds:null,baths:null,max:null,loc:null,amen:[]};
+  if(/\b(buy|sale|purchase|own)\b/.test(s)) p.mode="buy";
+  if(/\b(rent|lease|rental)\b/.test(s)) p.mode="rent";
+  [["house","House"],["condo","Condo"],["townhome","Townhome"],["townhouse","Townhome"],["apartment","Apartment"]].forEach(([k,v])=>{ if(s.includes(k)&&!p.types.includes(v)) p.types.push(v); });
+  if(/gated/.test(s)) p.gated=true;
+  const bed=s.match(/(\d+)\s*(?:\+)?\s*(?:bed|br|bd|bedroom)/); if(bed) p.beds=Number(bed[1]);
+  const bath=s.match(/(\d+)\s*(?:\+)?\s*(?:bath|ba|bathroom)/); if(bath) p.baths=Number(bath[1]);
+  let pr=s.match(/(?:under|below|less than|max|up to)\s*\$?\s*([\d,]+)\s*(k|m)?/)||s.match(/\$\s*([\d,]+)\s*(k|m)?/);
+  if(pr){ let n=Number(pr[1].replace(/,/g,"")); if(pr[2]==="k")n*=1e3; if(pr[2]==="m")n*=1e6; p.max=n; }
+  const fm={pool:"pool",garage:"garage","covered parking":"coveredParking",parking:"coveredParking",clubhouse:"clubhouse",gym:"gym","fitness":"gym","sea view":"seaView",ocean:"seaView",waterfront:"seaView",water:"seaView","golf":"golfView"};
+  for(const k in fm){ if(s.includes(k)&&!p.amen.includes(fm[k])) p.amen.push(fm[k]); }
+  for(const c of ["key west","key largo","marathon","islamorada","miami","fort lauderdale","brickell"]) if(s.includes(c)){ p.loc=c; break; }
+  if(/low crime|safe|safest/.test(s)){ state.filters.sort="safety"; $("fSort").value="safety"; }
+  return p;
+}
+
+/* ============================ Description generator ============================ */
+async function generateDesc(){
+  const btn=$("genDescBtn"), get=id=>$(id).value.trim();
+  const amen=AMEN.filter(a=>$("lp_"+a.key)?.checked).map(a=>a.label);
+  const d={mode:$("lpMode").value,type:$("lpType").value,price:get("lpPrice"),loc:get("lpLoc"),beds:get("lpBeds"),baths:get("lpBaths"),sqft:get("lpSqft"),gated:$("lpGated").checked,amen};
+  if(!d.beds&&!d.loc&&!amen.length){ toast("Add a few details first (beds, area, amenities)"); return; }
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Writing…';
+  try{
+    let text;
+    if(aiReady()){
+      const sys="You are a real-estate copywriter. Write a single warm, polished listing description of 2-3 sentences. No headings, bullets, or quotes.";
+      const prompt=`Write a listing description: ${d.type}${d.gated?" in a gated community":""}, ${d.beds||"?"}bd/${d.baths||"?"}ba, ${d.sqft||"?"} sqft, in ${d.loc||"the area"}, ${d.mode==="rent"?"for rent":"for sale"} at ${d.price?money(d.price):"market rate"}${d.mode==="rent"?"/mo":""}. Amenities/views: ${amen.join(", ")||"none listed"}.`;
+      text=await callAI(sys,prompt);
+    } else text=offlineDesc(d);
+    $("lpDesc").value=text;
+  }catch(e){ $("lpDesc").value=offlineDesc(d); toast("AI error — wrote an offline draft"); }
+  btn.disabled=false; btn.innerHTML="✨ Generate with AI";
+}
+function offlineDesc(d){
+  const a=(d.amen||[]); const at=a.length?` Highlights include ${a.slice(0,4).join(", ").toLowerCase()}.`:"";
+  return `Welcome to this inviting ${d.beds||""}-bedroom ${d.type.toLowerCase()}${d.gated?" in a gated community":""} in ${d.loc||"a prime location"}, offering ${d.sqft?d.sqft+" sqft of ":""}comfortable living.${at} ${d.mode==="rent"?"Available now for lease":"Offered for sale"}${d.price?" at "+money(d.price)+(d.mode==="rent"?"/mo":""):""} — schedule a showing today.`;
+}
+
+/* ============================ AI core ============================ */
+async function callAI(system,user){
+  const {provider,key}=state.ai, model=state.ai.model||DEFAULT_MODELS[provider];
+  if(!key) throw new Error("no API key");
+  if(provider==="anthropic"){
+    const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model,max_tokens:600,system,messages:[{role:"user",content:user}]})});
+    if(!res.ok) throw new Error("HTTP "+res.status+" "+(await res.text()).slice(0,120));
+    return ((await res.json()).content?.[0]?.text||"").trim();
+  } else {
+    const res=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"content-type":"application/json","authorization":"Bearer "+key},body:JSON.stringify({model,max_tokens:600,messages:[{role:"system",content:system},{role:"user",content:user}]})});
+    if(!res.ok) throw new Error("HTTP "+res.status+" "+(await res.text()).slice(0,120));
+    return ((await res.json()).choices?.[0]?.message?.content||"").trim();
+  }
+}
+
+/* ============================ Live listings (RapidAPI / Realtor) ============================ */
+function emptyAmen(){ const o={}; AMEN.forEach(a=>o[a.key]=false); return o; }
+function mapType(t){ t=(t||"").toLowerCase(); if(t.includes("condo"))return "Condo"; if(t.includes("town"))return "Townhome"; if(t.includes("apart")||t.includes("multi"))return "Apartment"; return "House"; }
+function sortParam(s){ return s==="price-asc"?"price_low":s==="price-desc"?"price_high":"relevant"; }
+function normalizeLive(r,mode){
+  const d=r.description||{};
+  const a=(r.location&&r.location.address)||r.address||{};
+  const coord=a.coordinate||r.coordinate||{};
+  let photos=[];
+  if(r.primary_photo&&r.primary_photo.href) photos.push(r.primary_photo.href);
+  if(Array.isArray(r.photos)) photos.push(...r.photos.map(p=>p&&p.href).filter(Boolean));
+  photos=[...new Set(photos)];
+  const price=r.list_price||r.price||r.list_price_min||(r.community&&r.community.price_max)||0;
+  return {
+    id:r.property_id||r.listing_id||r.permalink||("live-"+Math.floor(performance.now())+"-"+photos.length),
+    mode, type:mapType(d.type||r.prop_type),
+    price,
+    beds:d.beds||d.beds_min||r.beds||0,
+    baths:d.baths||d.baths_consolidated||d.baths_min||r.baths||0,
+    sqft:d.sqft||r.sqft||0,
+    city:a.city?`${a.city}, ${a.state_code||a.state||""}`.trim():(a.line||""),
+    neighborhood:(r.neighborhoods&&r.neighborhoods[0]&&r.neighborhoods[0].name)||a.line||"",
+    addr:a.line||a.city||"",
+    lat:coord.lat!=null?Number(coord.lat):null, lng:coord.lon!=null?Number(coord.lon):null,
+    stateAbbr:(a.state_code||a.state||state.filters.stateCode||"").toUpperCase().slice(0,2),
+    gated:false, amen:emptyAmen(), crime:null, photos,
+    desc:(r.description&&r.description.text)||`${mapType(d.type||r.prop_type)} in ${a.city||"the area"}.`,
+  };
+}
+async function fetchLive(){
+  if(!state.live.key){ toast("Add your RapidAPI key in ⚙ first"); openSettings(); return; }
+  const f=state.filters;
+  const city=(f.loc||"").split(",")[0].trim();
+  const stateCode=f.stateCode||"FL";
+  if(!city){ toast('Type a city in the Area filter (e.g. "Key West")'); $("sidebar").classList.add("open"); $("fLoc").focus(); return; }
+  const host=state.live.host||"us-real-estate.p.rapidapi.com";
+  const path=state.mode==="rent"?"/for-rent":"/v2/for-sale";
+  const qs=new URLSearchParams({ city, state_code:stateCode, limit:"42", offset:"0", sort:sortParam(f.sort) });
+  if(f.min) qs.set("price_min",f.min); if(f.max) qs.set("price_max",f.max);
+  if(f.beds) qs.set("beds_min",f.beds); if(f.baths) qs.set("baths_min",f.baths);
+  if(f.sqftMin) qs.set("sqft_min",f.sqftMin); if(f.sqftMax) qs.set("sqft_max",f.sqftMax);
+  if(f.types.length){ const tm={House:"single_family",Condo:"condos",Townhome:"townhomes",Apartment:"multi_family"}; const pt=f.types.map(t=>tm[t]).filter(Boolean).join(","); if(pt) qs.set("property_type",pt); }
+  const btn=$("liveBtn"); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Searching…';
+  try{
+    const res=await fetch(`https://${host}${path}?${qs.toString()}`,{headers:{"x-rapidapi-key":state.live.key,"x-rapidapi-host":host}});
+    if(!res.ok) throw new Error("HTTP "+res.status+" — "+(await res.text()).slice(0,160));
+    const data=await res.json();
+    const results=(data.data&&((data.data.home_search&&data.data.home_search.results)||data.data.results||data.data.properties))||data.results||data.properties||[];
+    if(!Array.isArray(results)) throw new Error("Unexpected response shape — see console");
+    LIVE=results.map(r=>normalizeLive(r,state.mode)).filter(x=>x.price||x.photos.length);
+    state.source="live"; render();
+    toast(LIVE.length?`Loaded ${LIVE.length} live listings ⚡`:"No live results — try another city or widen filters");
+  }catch(e){ console.error("Live fetch error:",e); toast("Live fetch failed: "+e.message); }
+  btn.disabled=false; btn.innerHTML="⚡ Live listings";
+}
+
+/* ============================ Crime stats (FBI Crime Data API) ============================ */
+// National reference rates per 100k (FBI UCR, recent) for relative context.
+const US_VIOLENT=380, US_PROPERTY=1950;
+// FBI CDE "summarized" endpoint returns offenses.rates["<State> Offenses"] keyed by MM-YYYY,
+// where the year-end (December) value is the annual rate per 100k. We take the latest year's figure.
+async function fetchOffenseRate(st,offense,key){
+  // Finalized annual data only (to=12-2022) so we don't read a partial current year.
+  const u=`https://api.usa.gov/crime/fbi/cde/summarized/state/${st}/${offense}?from=01-2019&to=12-2022&API_KEY=${encodeURIComponent(key)}`;
+  const c=new AbortController(), t=setTimeout(()=>c.abort(),9000);
+  const r=await fetch(u,{signal:c.signal}); clearTimeout(t);
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  const data=await r.json();
+  const rates=data&&data.offenses&&data.offenses.rates; if(!rates) return null;
+  const k=Object.keys(rates).find(x=>/offenses/i.test(x))||Object.keys(rates)[0]; if(!k) return null;
+  // The December ("12-YYYY") value is the year-end annual rate per 100k. Use the latest year present.
+  const dec=[];
+  for(const [mY,v] of Object.entries(rates[k])){ const val=Number(v); if(/^12-/.test(mY)&&!isNaN(val)&&val>1) dec.push({year:Number(mY.split("-")[1]),val}); }
+  if(dec.length){ dec.sort((a,b)=>a.year-b.year); const last=dec[dec.length-1]; return { rate:Math.round(last.val), year:last.year }; }
+  // Fallback: largest plausible annual value in the series.
+  const all=Object.entries(rates[k]).map(([mY,v])=>({year:Number(mY.split("-")[1]),val:Number(v)})).filter(e=>e.val>1&&!isNaN(e.year));
+  if(!all.length) return null;
+  const best=all.sort((a,b)=>a.val-b.val).pop();
+  return { rate:Math.round(best.val), year:best.year };
+}
+function crimeBadge(rate,ref){
+  if(rate==null) return {label:"n/a",color:"#475569",pct:0};
+  const ratio=rate/ref;
+  const color=ratio<0.85?"#34d399":ratio<1.15?"#fbbf24":"#f87171";
+  const label=ratio<0.85?"Lower than US avg":ratio<1.15?"Near US avg":"Higher than US avg";
+  return {label,color,pct:Math.min(100,Math.round(ratio*50))};
+}
+function renderCrime(box,rec,l){
+  if(rec){
+    const v=crimeBadge(rec.violentRate,US_VIOLENT), p=crimeBadge(rec.propertyRate,US_PROPERTY);
+    box.innerHTML=`
+      <div class="intel-row"><span>🚨 Violent crime</span><span class="v">${rec.violentRate??"—"}<span class="v muted" style="font-weight:400">/100k</span></span></div>
+      <div class="crime-bar"><div style="width:${v.pct}%;background:${v.color}"></div></div>
+      <div class="intel-row" style="margin-top:4px"><span>🏠 Property crime</span><span class="v">${rec.propertyRate??"—"}<span class="v muted" style="font-weight:400">/100k</span></span></div>
+      <div class="crime-bar"><div style="width:${p.pct}%;background:${p.color}"></div></div>
+      <div class="intel-row" style="margin-top:6px"><span class="v" style="color:${v.color}">${v.label}</span></div>
+      <div class="intel-row"><span class="v muted" style="font-size:11px">${stateOf(l)} state-level · FBI UCR ${rec.year||""} · vs US avg</span></div>`;
+  } else box.innerHTML=crimeFallback(l,"No FBI record returned.");
+}
+function crimeFallback(l,why){
+  const c=l.crime;
+  return `<div class="intel-row"><span class="v muted">${why}</span></div>`+
+    (c!=null?`<div class="crime-bar"><div style="width:${c}%;background:${crimeColor(c)}"></div></div><div class="intel-row"><span>${crimeLabel(c)} (demo index)</span><span class="v">${c}/100</span></div>`:"");
+}
+async function loadCrime(l){
+  const box=$("safetyBox"); if(!box) return;
+  const st=stateOf(l);
+  if(!/^[A-Z]{2}$/.test(st||"")){ box.innerHTML=crimeFallback(l,"No state available for this listing."); return; }
+  if(crimeCache[st]){ renderCrime(box,crimeCache[st],l); return; }
+  const key=state.crime.key||"DEMO_KEY";
+  let rateLimited=false;
+  const get=async(off)=>{ try{ return await fetchOffenseRate(st,off,key); }catch(e){ if(/429/.test(e.message))rateLimited=true; return null; } };
+  const v=await get("violent-crime");
+  const p=await get("property-crime");
+  if(currentListing!==l) return;
+  if(!v&&!p){
+    box.innerHTML=crimeFallback(l, rateLimited
+      ? (key==="DEMO_KEY"?"FBI shared DEMO_KEY is rate-limited — add your free api.data.gov key in ⚙ Settings.":"FBI API rate limit hit — try again shortly.")
+      : "Couldn't load FBI crime data.");
+    return;
+  }
+  const rec={ violentRate:v?v.rate:null, propertyRate:p?p.rate:null, year:(v&&v.year)||(p&&p.year) };
+  crimeCache[st]=rec;
+  renderCrime(box,rec,l);
+}
+
+/* ============================ Mode / view ============================ */
+function setMode(mode,silent){
+  state.mode=mode;
+  document.querySelectorAll("#modeToggle button").forEach(b=>{ const on=b.dataset.mode===mode; b.classList.toggle("active",on); b.classList.toggle("rent",b.dataset.mode==="rent"); b.classList.toggle("buy",b.dataset.mode==="buy"); });
+  if(!silent){ state.showFavsOnly=false; state.source="demo"; render(); }
+}
+function showView(v){ state.view=v; $("browseView").style.display=v==="browse"?"block":"none"; $("listView").style.display=v==="list"?"block":"none"; }
+
+/* ============================ My places ============================ */
+function openPlaces(){ renderPlaces(); $("placesOverlay").classList.add("open"); }
+function renderPlaces(){
+  const box=$("placeList");
+  box.innerHTML=state.places.length?state.places.map(p=>`<div class="place-item"><b>${p.name}</b><span style="color:var(--muted)">${p.label}</span><button class="del" data-id="${p.id}">✕</button></div>`).join(""):'<div class="commute-empty">No places yet. Add work, school, or anywhere you commute to.</div>';
+  box.querySelectorAll(".del").forEach(b=>b.addEventListener("click",()=>{ state.places=state.places.filter(x=>x.id!==Number(b.dataset.id)); savePlaces(); renderPlaces(); }));
+}
+function savePlaces(){ localStorage.setItem("hm_places",JSON.stringify(state.places)); }
+async function addPlace(){
+  const name=$("placeName").value.trim()||"Place", addr=$("placeAddr").value.trim();
+  if(!addr){ toast("Enter an address or place"); return; }
+  const btn=$("addPlaceBtn"); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Locating…';
+  try{
+    const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`,{headers:{"Accept":"application/json"}});
+    const data=await res.json();
+    if(!data.length) throw new Error("not found");
+    state.places.push({id:Date.now(),name,label:data[0].display_name.split(",").slice(0,2).join(","),lat:Number(data[0].lat),lng:Number(data[0].lon)});
+    savePlaces(); renderPlaces(); $("placeName").value=""; $("placeAddr").value=""; toast("Place added 📍");
+  }catch(e){ toast("Couldn't find that address — try a more specific one"); }
+  btn.disabled=false; btn.innerHTML="+ Add place";
+}
+
+/* ============================ Settings ============================ */
+function openSettings(){ $("setProvider").value=state.ai.provider; $("setKey").value=state.ai.key; $("setModel").value=state.ai.model||""; $("setModel").placeholder=DEFAULT_MODELS[state.ai.provider]; $("setRapidKey").value=state.live.key; $("setRapidHost").value=state.live.host; $("setCrimeKey").value=state.crime.key; refreshAIStatus(); updateSetHelp(); $("settingsOverlay").classList.add("open"); }
+function refreshAIStatus(){ const el=$("aiStatus"); if(state.ai.key){ el.className="status-pill on"; el.textContent="AI on — "+state.ai.provider; } else { el.className="status-pill off"; el.textContent="AI off — offline mode"; } }
+function updateSetHelp(){ const p=$("setProvider").value; $("setHelp").innerHTML=p==="anthropic"?"Get a key at console.anthropic.com. Browser calls use a direct-access header — fine for personal use; for production, proxy through a backend.":"Get a key at platform.openai.com. For production, proxy requests through a backend so the key stays private."; }
+function saveSettings(){
+  state.ai.provider=$("setProvider").value; state.ai.key=$("setKey").value.trim(); state.ai.model=$("setModel").value.trim();
+  localStorage.setItem("hm_ai_provider",state.ai.provider); localStorage.setItem("hm_ai_key",state.ai.key); localStorage.setItem("hm_ai_model",state.ai.model);
+  state.live.key=$("setRapidKey").value.trim(); state.live.host=$("setRapidHost").value.trim()||"us-real-estate.p.rapidapi.com";
+  localStorage.setItem("hm_rapid_key",state.live.key); localStorage.setItem("hm_rapid_host",state.live.host);
+  state.crime.key=$("setCrimeKey").value.trim()||"DEMO_KEY"; localStorage.setItem("hm_crime_key",state.crime.key);
+  refreshAIStatus(); toast(state.ai.key||state.live.key?"Settings saved ✨":"Saved (offline mode)"); $("settingsOverlay").classList.remove("open");
+}
+
+/* ============================ Filter UI sync ============================ */
+function syncFilterUI(){
+  const f=state.filters;
+  $("fLoc").value=f.loc; $("fState").value=f.stateCode; $("fMin").value=f.min; $("fMax").value=f.max;
+  $("fSqftMin").value=f.sqftMin; $("fSqftMax").value=f.sqftMax; $("fGated").checked=f.gated;
+  $("typeChecks").querySelectorAll("input").forEach(c=>c.checked=f.types.includes(c.value));
+  $("bedSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.v===f.beds));
+  $("bathSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.v===f.baths));
+  AMEN.forEach(a=>{ const c=$("amen_"+a.key); if(c) c.checked=f.amen.includes(a.key); });
+}
+function readFilterUI(){
+  const f=state.filters;
+  f.loc=$("fLoc").value.trim(); f.stateCode=$("fState").value; f.min=$("fMin").value; f.max=$("fMax").value;
+  f.sqftMin=$("fSqftMin").value; f.sqftMax=$("fSqftMax").value; f.gated=$("fGated").checked;
+  f.types=[...$("typeChecks").querySelectorAll("input:checked")].map(c=>c.value);
+  f.amen=AMEN.filter(a=>$("amen_"+a.key)?.checked).map(a=>a.key);
+  state.showFavsOnly=false; render();
+}
+
+/* ============================ Build dynamic UI ============================ */
+function buildSidebarAmenities(){
+  $("amenChecks").innerHTML=AMEN.map(a=>`<label class="chk"><input type="checkbox" id="amen_${a.key}">${a.icon} ${a.label}</label>`).join("");
+}
+function buildStates(){
+  $("fState").innerHTML=STATES.map(s=>`<option value="${s}"${s==="FL"?" selected":""}>${s}</option>`).join("");
+}
+function buildListAmenities(){
+  $("lpAmen").innerHTML=AMEN.map(a=>`<label><input type="checkbox" id="lp_${a.key}">${a.icon} ${a.label}</label>`).join("");
+}
+
+/* ============================ Events ============================ */
+document.querySelectorAll("#modeToggle button").forEach(b=>b.addEventListener("click",()=>{ showView("browse"); setMode(b.dataset.mode); }));
+$("aiSearchBtn").addEventListener("click",runAISearch);
+$("aiQuery").addEventListener("keydown",e=>{ if(e.key==="Enter") runAISearch(); });
+$("filtersToggle").addEventListener("click",()=>$("sidebar").classList.toggle("open"));
+$("liveBtn").addEventListener("click",fetchLive);
+
+function wireFilters(){
+  ["fLoc","fMin","fMax","fSqftMin","fSqftMax"].forEach(id=>$(id).addEventListener("input",readFilterUI));
+  $("fState").addEventListener("change",readFilterUI);
+  $("fGated").addEventListener("change",readFilterUI);
+  $("typeChecks").querySelectorAll("input").forEach(c=>c.addEventListener("change",readFilterUI));
+  $("amenChecks").querySelectorAll("input").forEach(c=>c.addEventListener("change",readFilterUI));
+  $("bedSeg").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ state.filters.beds=b.dataset.v; syncFilterUI(); render(); }));
+  $("bathSeg").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ state.filters.baths=b.dataset.v; syncFilterUI(); render(); }));
+  $("fSort").addEventListener("change",()=>{ state.filters.sort=$("fSort").value; render(); });
+}
+document.querySelectorAll("#exampleChips .chip").forEach(c=>c.addEventListener("click",()=>{ $("aiQuery").value=c.textContent; runAISearch(); }));
+
+$("clearBtn").addEventListener("click",()=>{
+  state.filters={loc:"",min:"",max:"",types:[],gated:false,beds:"",baths:"",sqftMin:"",sqftMax:"",amen:[],sort:"relevance"};
+  $("fSort").value="relevance"; $("aiInterpreted").style.display="none"; $("aiQuery").value="";
+  syncFilterUI(); state.showFavsOnly=false; state.source="demo"; render();
+});
+$("favNavBtn").addEventListener("click",()=>{ showView("browse"); state.source="demo"; state.showFavsOnly=!state.showFavsOnly; $("favNavBtn").classList.toggle("primary",state.showFavsOnly); render(); });
+$("listNavBtn").addEventListener("click",()=>showView("list"));
+$("placesNavBtn").addEventListener("click",openPlaces);
+$("lpCancel").addEventListener("click",()=>showView("browse"));
+$("genDescBtn").addEventListener("click",generateDesc);
+$("lpSave").addEventListener("click",publishListing);
+$("settingsBtn").addEventListener("click",openSettings);
+$("settingsClose").addEventListener("click",()=>$("settingsOverlay").classList.remove("open"));
+$("setSave").addEventListener("click",saveSettings);
+$("setClear").addEventListener("click",()=>{ $("setKey").value=""; saveSettings(); });
+$("setProvider").addEventListener("change",()=>{ $("setModel").placeholder=DEFAULT_MODELS[$("setProvider").value]; updateSetHelp(); });
+$("placesClose").addEventListener("click",()=>{ $("placesOverlay").classList.remove("open"); if(currentListing) loadCommute(currentListing); });
+$("addPlaceBtn").addEventListener("click",addPlace);
+["detailOverlay","settingsOverlay","placesOverlay"].forEach(id=>$(id).addEventListener("click",e=>{ if(e.target.id===id) $(id).classList.remove("open"); }));
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){ ["detailOverlay","settingsOverlay","placesOverlay"].forEach(id=>$(id).classList.remove("open")); }
+  if($("detailOverlay").classList.contains("open")&&realPhotos(currentListing).length>1){ if(e.key==="ArrowLeft")gallery(-1); if(e.key==="ArrowRight")gallery(1); }
+});
+
+function publishListing(){
+  const get=id=>$(id).value.trim();
+  const beds=Number(get("lpBeds")), price=Number(get("lpPrice"));
+  if(!price||!get("lpLoc")||!beds){ toast("Add at least price, area, and bedrooms"); return; }
+  const amen={}; AMEN.forEach(a=>amen[a.key]=$("lp_"+a.key).checked);
+  const l={ id:nextId++, mode:$("lpMode").value, type:$("lpType").value, price, beds, baths:Number(get("lpBaths"))||1, sqft:Number(get("lpSqft"))||800,
+    city:get("lpLoc"), neighborhood:get("lpLoc").split(",")[0], addr:get("lpAddr")||get("lpLoc"),
+    lat:24.5594, lng:-81.8005, gated:$("lpGated").checked, amen, crime:35, photos:[],
+    desc:get("lpDesc")||offlineDesc({mode:$("lpMode").value,type:$("lpType").value,price,loc:get("lpLoc"),beds,baths:get("lpBaths"),sqft:get("lpSqft"),gated:$("lpGated").checked,amen:AMEN.filter(a=>amen[a.key]).map(a=>a.label)}) };
+  LISTINGS.unshift(l);
+  ["lpPrice","lpLoc","lpBeds","lpBaths","lpSqft","lpAddr","lpDesc"].forEach(id=>$(id).value="");
+  AMEN.forEach(a=>$("lp_"+a.key).checked=false); $("lpGated").checked=false;
+  setMode(l.mode); showView("browse"); toast("Listing published! 🎉"); openDetail(l);
+}
+
+/* ============================ Init ============================ */
+buildSidebarAmenities();
+buildStates();
+buildListAmenities();
+wireFilters();
+setMode("rent",true);
+render();
+refreshAIStatus();
+</script>
+</body>
+</html>
