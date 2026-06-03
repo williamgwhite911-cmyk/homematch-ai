@@ -621,6 +621,22 @@ function toggleFav(id){
   localStorage.setItem("hm_favs",JSON.stringify([...state.favorites]));
   render();
 }
+function b64encode(s){ return btoa(unescape(encodeURIComponent(s))); }
+function b64decode(s){ return decodeURIComponent(escape(atob(s))); }
+function shareListing(l){
+  // Encode the listing into the URL hash so the link reopens it (works for live listings too, no backend).
+  const slim={id:l.id,mode:l.mode,type:l.type,price:l.price,beds:l.beds,baths:l.baths,sqft:l.sqft,city:l.city,neighborhood:l.neighborhood,addr:l.addr,lat:l.lat,lng:l.lng,gated:l.gated,amen:l.amen,garageSpaces:l.garageSpaces,crime:l.crime,photos:(l.photos||[]).slice(0,4),agent:l.agent,phone:l.phone,brokerage:l.brokerage,desc:l.desc,priceHistory:l.priceHistory,schools:l.schools,stateAbbr:l.stateAbbr};
+  const url=location.origin+location.pathname+"#l="+encodeURIComponent(b64encode(JSON.stringify(slim)));
+  const text=`${money(l.price)}${l.mode==="rent"?"/mo":""} — ${l.addr}, ${l.city} · ${l.beds}bd/${l.baths}ba`;
+  if(navigator.share){ navigator.share({title:l.addr||"HomeMatch listing",text,url}).catch(()=>{}); }
+  else if(navigator.clipboard){ navigator.clipboard.writeText(url).then(()=>toast("🔗 Link copied to clipboard")).catch(()=>prompt("Copy this link:",url)); }
+  else { prompt("Copy this link:",url); }
+}
+function openSharedFromHash(){
+  const m=(location.hash||"").match(/[#&]l=([^&]+)/); if(!m) return;
+  try{ const l=JSON.parse(b64decode(decodeURIComponent(m[1]))); if(!l||!l.amen) return; currentListing=l; openDetail(l); }
+  catch(e){ /* ignore bad link */ }
+}
 
 /* ============================ Detail + gallery ============================ */
 let currentListing=null, galleryIdx=0, miniMap=null;
@@ -634,6 +650,10 @@ function openDetail(l){
     <h2>${money(l.price)}${l.mode==="rent"?" <small style='font-size:15px;color:var(--muted)'>/mo</small>":""}</h2>
     <div class="addr" style="font-size:16px">${l.addr}</div>
     <div class="sub-addr">${l.neighborhood} · ${l.city} · ${l.type}</div>
+    <div style="display:flex;gap:8px;margin:12px 0">
+      <button id="detailFav" class="nav-btn" style="font-weight:700">${state.favorites.has(l.id)?"♥ Saved":"♡ Save"}</button>
+      <button id="detailShare" class="nav-btn" style="font-weight:700">↗ Share</button>
+    </div>
     <div class="modal-specs">
       <div class="modal-spec"><b>${l.beds}</b> Bedrooms</div>
       <div class="modal-spec"><b>${l.baths}</b> Bathrooms</div>
@@ -709,6 +729,8 @@ function openDetail(l){
       <div class="advisor-chat"><input id="advisorInput" placeholder="e.g. Is this good for a family? What should I offer?"><button id="advisorSend">Ask</button></div>
     </div>`;
 
+  $("detailFav")?.addEventListener("click",()=>{ toggleFav(l.id); $("detailFav").innerHTML=state.favorites.has(l.id)?"♥ Saved":"♡ Save"; });
+  $("detailShare")?.addEventListener("click",()=>shareListing(l));
   $("detailBody").querySelector(".agent-name")?.addEventListener("click",e=>filterByAgent(e.currentTarget.dataset.agent));
   $("detailBody").querySelectorAll(".advisor-actions button").forEach(b=>b.addEventListener("click",()=>advisorAsk(presetQuestion(b.dataset.act))));
   $("advisorSend").addEventListener("click",()=>{ const v=$("advisorInput").value.trim(); if(v){ advisorAsk(v); $("advisorInput").value=""; } });
@@ -1563,6 +1585,8 @@ wireFilters();
 setMode("rent",true);
 render();
 refreshAIStatus();
+openSharedFromHash();
+window.addEventListener("hashchange",openSharedFromHash);
 </script>
 </body>
 </html>
