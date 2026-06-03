@@ -1220,18 +1220,17 @@ async function fetchLive(){
         if(res.status===404||res.status===403){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,150); continue outer; }
         if(!res.ok){ lastErr="HTTP "+res.status+" ("+path+") — "+(await res.text()).slice(0,220); break outer; }
         let data; try{ data=await res.json(); }catch(_){ lastErr="Response wasn't JSON ("+path+")."; break outer; }
-        const results=extractResults(data);
-        if(Array.isArray(results)&&results.length){
+        const hs=(data&&data.data&&data.data.home_search)||null;
+        const results=(hs&&Array.isArray(hs.results))?hs.results:(extractResults(data)||[]);
+        if(results.length){
           LIVE=results.map(r=>normalizeLive(r,state.mode)).filter(x=>x.price||x.photos.length);
           if(state.filters.sort==="relevance") LIVE.sort((a,b)=>(realPhotos(a).length?0:1)-(realPhotos(b).length?0:1)); // photos first
           if(LIVE.length){ state.source="live"; render(); toast(`Loaded ${LIVE.length} live listings ⚡`); btn.disabled=false; btn.innerHTML="⚡ Live listings"; loadStateSafety(stateCode); return; }
         }
-        // 200 but empty — the free API intermittently returns an empty payload; retry the same path.
-        const total=(data&&data.data&&data.data.home_search&&data.data.home_search.total)||0;
-        lastErr= total>0
-          ? "The API returned an empty page (it does this intermittently on the free plan). Tap ⚡ Search again — there are "+total.toLocaleString()+" listings in "+city+", "+stateCode+"."
-          : "No listings found for "+city+", "+stateCode+". Try another city, switch Rent/Buy, or widen filters.";
-        if(!(total>0)) continue outer; // genuinely empty → try next path/format
+        // home_search present with total 0 = genuinely empty (filters too tight). home_search null/missing = intermittent blip → retry.
+        const total=hs?Number(hs.total||0):0;
+        if(hs && total===0){ lastErr="No listings found for "+city+", "+stateCode+". Try another city, switch Rent/Buy, or widen filters."; continue outer; }
+        lastErr="The API returned an empty page (it does this occasionally). Retrying…"; // retry same path via inner loop
       }
     }
     liveError(lastErr,city,stateCode);
